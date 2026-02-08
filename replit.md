@@ -62,10 +62,25 @@ Preferred communication style: Simple, everyday language.
 - `shared/schema.ts` — Drizzle table definitions + Zod validation schemas (via `drizzle-zod`)
 - `shared/routes.ts` — URL builder helper and error schema definitions
 
+### Stripe Integration (Payments)
+- **Purpose:** Users can purchase listing credits via Stripe Checkout (one-time payments)
+- **Products:**
+  - $1 → 1 listing credit (Price ID: `price_1SyevyJNQ49zVK9WlFpLkg0m`)
+  - $5 → 10 listing credits (Price ID: `price_1SyewIJNQ49zVK9W1zUjHvTW`)
+- **Integration:** Replit Stripe connector (`stripe-replit-sync`) for managed webhooks & data sync
+- **Flow:** User clicks "Buy Now" → backend creates Checkout Session → user pays on Stripe → redirected back to `/dashboard?purchase=success&session_id=...` → backend fulfills by adding credits
+- **Files:**
+  - `server/stripeClient.ts` — Stripe client with credentials from Replit connection API
+  - `server/webhookHandlers.ts` — Webhook processing via stripe-replit-sync
+  - Stripe routes in `server/routes.ts`: `POST /api/stripe/checkout`, `POST /api/stripe/fulfill`, `GET /api/stripe/products`, `GET /api/stripe/publishable-key`
+  - Webhook route in `server/index.ts`: `POST /api/stripe/webhook` (registered BEFORE `express.json()`)
+- **Idempotency:** Fulfillment checks credit ledger to prevent duplicate credit grants
+
 ## External Dependencies
 
 ### Required Services
 - **PostgreSQL Database** — Required. Connection via `DATABASE_URL` environment variable. Used for all data storage and session management.
+- **Stripe** — Required for credit purchases. Managed via Replit Stripe connector (credentials fetched from Replit connection API, not env vars).
 
 ### Environment Variables
 - `DATABASE_URL` — PostgreSQL connection string (required, will throw on startup if missing)
@@ -79,6 +94,7 @@ Preferred communication style: Simple, everyday language.
 - `@clerk/clerk-react` — Frontend authentication (ClerkProvider, SignIn, SignUp, UserButton, hooks)
 - `@clerk/express` — Backend authentication middleware (clerkMiddleware, getAuth, requireAuth)
 - `@tanstack/react-query` — Client-side data fetching
+- `stripe` + `stripe-replit-sync` — Stripe payments and webhook sync
 - `framer-motion` — Animations
 - `wouter` — Client-side routing
 - `zod` — Schema validation (shared)

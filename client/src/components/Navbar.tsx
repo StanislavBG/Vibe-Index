@@ -107,7 +107,7 @@ function NotificationBell() {
 
 export function Navbar() {
   const [location, navigate] = useLocation();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const navLink = (href: string, label: string) => {
@@ -143,7 +143,7 @@ export function Navbar() {
 
           <div className="w-px h-5 bg-border" />
 
-          {isAuthenticated ? (
+          <SignedIn>
             <div className="flex items-center gap-2">
               <Link href="/dashboard">
                 <Button variant="ghost" size="sm" data-testid="link-dashboard">

@@ -8,6 +8,9 @@ import { submitProjectSchema, subscribeSchema, createCommentSchema, submitSocial
 import { processJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
 import crypto from "crypto";
 import multer from "multer";
+import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -660,6 +663,142 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/notifications/read-all", requireAuth, syncClerkUser, async (req, res) => {
     const count = await storage.markAllNotificationsRead(req.dbUser!.id);
     res.json({ message: `Marked ${count} notifications as read`, count });
+  });
+
+  // ==========================================
+  // STRIPE — Buy Listing Credits
+  // ==========================================
+  const PRICE_CREDIT_MAP: Record<string, number> = {
+    "price_1SyevyJNQ49zVK9WlFpLkg0m": 1,   // $1 → 1 listing credit
+    "price_1SyewIJNQ49zVK9W1zUjHvTW": 10,  // $5 → 10 listing credits
+  };
+
+  app.get("/api/stripe/publishable-key", async (_req, res) => {
+    try {
+      const key = await getStripePublishableKey();
+      res.json({ publishableKey: key });
+    } catch (error: any) {
+      console.error("Error getting Stripe publishable key:", error);
+      res.status(500).json({ message: "Stripe not configured" });
+    }
+  });
+
+  app.get("/api/stripe/products", async (_req, res) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT 
+          p.id as product_id,
+          p.name as product_name,
+          p.description as product_description,
+          pr.id as price_id,
+          pr.unit_amount,
+          pr.currency
+        FROM stripe.products p
+        JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true
+        WHERE p.active = true
+        ORDER BY pr.unit_amount ASC
+      `);
+      res.json({ products: result.rows });
+    } catch (error: any) {
+      console.error("Error listing Stripe products:", error);
+      res.status(500).json({ message: "Failed to load products" });
+    }
+  });
+
+  app.post("/api/stripe/checkout", requireAuth, syncClerkUser, async (req, res) => {
+    try {
+      const { priceId } = req.body;
+      if (!priceId || !PRICE_CREDIT_MAP[priceId]) {
+        return res.status(400).json({ message: "Invalid price selected" });
+      }
+
+      const user = req.dbUser!;
+      const stripe = await getUncachableStripeClient();
+      const credits = PRICE_CREDIT_MAP[priceId];
+
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [{ price: priceId, quantity: 1 }],
+        mode: "payment",
+        success_url: `${req.protocol}://${req.get("host")}/dashboard?purchase=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${req.protocol}://${req.get("host")}/dashboard?purchase=cancelled`,
+        metadata: {
+          userId: String(user.id),
+          credits: String(credits),
+          priceId,
+        },
+      });
+
+      res.json({ url: session.url });
+    } catch (error: any) {
+      console.error("Checkout error:", error);
+      res.status(500).json({ message: "Failed to create checkout session" });
+    }
+  });
+
+  const fulfilledSessions = new Set<string>();
+
+  app.post("/api/stripe/fulfill", requireAuth, syncClerkUser, async (req, res) => {
+    try {
+      const { sessionId } = req.body;
+      if (!sessionId) return res.status(400).json({ message: "Session ID required" });
+
+      if (fulfilledSessions.has(sessionId)) {
+        return res.json({ message: "Already fulfilled", credits: 0 });
+      }
+
+      const stripe = await getUncachableStripeClient();
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      if (session.payment_status !== "paid") {
+        return res.status(400).json({ message: "Payment not completed" });
+      }
+
+      const userId = parseInt(session.metadata?.userId || "0");
+      const credits = parseInt(session.metadata?.credits || "0");
+      if (!userId || !credits) {
+        return res.status(400).json({ message: "Invalid session metadata" });
+      }
+
+      if (userId !== req.dbUser!.id) {
+        return res.status(403).json({ message: "Session does not belong to this user" });
+      }
+
+      const existingLedger = await storage.getCreditLedger(userId);
+      const alreadyFulfilled = existingLedger.some(
+        (entry) => entry.type === "purchase" && entry.description?.includes(sessionId)
+      );
+      if (alreadyFulfilled) {
+        fulfilledSessions.add(sessionId);
+        return res.json({ message: "Already fulfilled", credits: 0 });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      await storage.updateUserCredits(userId, {
+        paidListingCredits: user.paidListingCredits + credits,
+      });
+
+      await storage.addCreditLedgerEntry(
+        userId, credits * 100, "purchase",
+        `Purchased ${credits} listing credit${credits > 1 ? "s" : ""} via Stripe (${sessionId})`
+      );
+
+      await storage.createNotification(
+        userId,
+        "credit_earned",
+        "Credits purchased!",
+        `You purchased ${credits} listing credit${credits > 1 ? "s" : ""}. You can now submit more projects!`,
+        "/submit"
+      );
+
+      fulfilledSessions.add(sessionId);
+      res.json({ message: "Credits added", credits });
+    } catch (error: any) {
+      console.error("Fulfillment error:", error);
+      res.status(500).json({ message: "Failed to fulfill purchase" });
+    }
   });
 
   // ==========================================
