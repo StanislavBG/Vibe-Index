@@ -1,18 +1,20 @@
-import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// === TABLE DEFINITIONS ===
+// Minimal user table for boilerplate compliance
 export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
-  password: text("password").notNull(),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
-});
+// === BASE SCHEMAS ===
+export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 
-export type InsertUser = z.infer<typeof insertUserSchema>;
+// === EXPLICIT API CONTRACT TYPES ===
 export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+
+// For this Hello World app, we might not need much, but keeping standard structure
+export type CreateUserRequest = InsertUser;
