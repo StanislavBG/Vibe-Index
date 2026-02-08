@@ -677,7 +677,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const key = await getStripePublishableKey();
       res.json({ publishableKey: key });
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error getting Stripe publishable key:", error);
       res.status(500).json({ message: "Stripe not configured" });
     }
@@ -699,7 +699,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ORDER BY pr.unit_amount ASC
       `);
       res.json({ products: result.rows });
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error listing Stripe products:", error);
       res.status(500).json({ message: "Failed to load products" });
     }
@@ -730,7 +730,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
 
       res.json({ url: session.url });
-    } catch (error: any) {
+    } catch (error) {
       console.error("Checkout error:", error);
       res.status(500).json({ message: "Failed to create checkout session" });
     }
@@ -795,7 +795,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       fulfilledSessions.add(sessionId);
       res.json({ message: "Credits added", credits });
-    } catch (error: any) {
+    } catch (error) {
       console.error("Fulfillment error:", error);
       res.status(500).json({ message: "Failed to fulfill purchase" });
     }

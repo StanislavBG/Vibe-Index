@@ -39,7 +39,7 @@ async function initStripe() {
     console.log('Syncing Stripe data...');
     stripeSync.syncBackfill()
       .then(() => console.log('Stripe data synced'))
-      .catch((err: any) => console.error('Error syncing Stripe data:', err));
+      .catch((err: unknown) => console.error('Error syncing Stripe data:', err));
   } catch (error) {
     console.error('Failed to initialize Stripe:', error);
   }
@@ -64,8 +64,9 @@ app.post(
 
       await WebhookHandlers.processWebhook(req.body as Buffer, sig);
       res.status(200).json({ received: true });
-    } catch (error: any) {
-      console.error('Webhook error:', error.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error('Webhook error:', message);
       res.status(400).json({ error: 'Webhook processing error' });
     }
   }
