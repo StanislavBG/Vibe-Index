@@ -40,7 +40,7 @@ export const projects = pgTable("projects", {
   ownerId: integer("owner_id").references(() => users.id),
   anonymousToken: text("anonymous_token"),
   likesCount: integer("likes_count").notNull().default(0),
-  status: text("status").notNull().default("active"),
+  status: text("status").notNull().default("pending"), // pending (being analyzed), active, low_priority, archived
   claimed: boolean("claimed").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -61,6 +61,20 @@ export const likes = pgTable("likes", {
   uniqueIndex("likes_user_project_idx").on(table.userId, table.projectId),
 ]);
 
+// Scraping / analysis jobs
+export const jobs = pgTable("jobs", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("queued"), // queued, running, completed, failed
+  step: text("step").default("waiting"), // waiting, fetching, analyzing, categorizing, done, error
+  stepDetail: text("step_detail"),
+  result: text("result"), // JSON string of extracted data
+  error: text("error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Enhanced subscriptions with preferences
 export const categorySubscriptions = pgTable("category_subscriptions", {
   id: serial("id").primaryKey(),
   email: text("email").notNull(),
@@ -70,6 +84,18 @@ export const categorySubscriptions = pgTable("category_subscriptions", {
 }, (table) => [
   uniqueIndex("sub_email_category_idx").on(table.email, table.categoryId),
 ]);
+
+// Newsletter preferences (one per email)
+export const newsletterPreferences = pgTable("newsletter_preferences", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  frequency: text("frequency").notNull().default("weekly"), // daily, weekly, monthly
+  interests: text("interests"), // JSON array of keywords
+  pricingFilter: text("pricing_filter"), // free, paid, all
+  maxProjects: integer("max_projects").notNull().default(10), // how many projects per digest
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
 
 export const anonymousSubmissions = pgTable("anonymous_submissions", {
   id: serial("id").primaryKey(),
@@ -85,6 +111,8 @@ export const insertCategorySchema = createInsertSchema(categories).omit({ id: tr
 export const insertLikeSchema = createInsertSchema(likes).omit({ id: true, createdAt: true });
 export const insertCategorySubscriptionSchema = createInsertSchema(categorySubscriptions).omit({ id: true, verified: true, createdAt: true });
 export const insertAnonymousSubmissionSchema = createInsertSchema(anonymousSubmissions).omit({ id: true, createdAt: true });
+export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertNewsletterPreferencesSchema = createInsertSchema(newsletterPreferences).omit({ id: true, createdAt: true, updatedAt: true });
 
 // === CUSTOM VALIDATION SCHEMAS ===
 export const registerUserSchema = z.object({
@@ -100,14 +128,15 @@ export const loginUserSchema = z.object({
 
 export const submitProjectSchema = z.object({
   url: z.string().url(),
-  name: z.string().optional(),
-  shortDescription: z.string().max(300).optional(),
-  categoryIds: z.array(z.number()).optional(),
 });
 
 export const subscribeSchema = z.object({
   email: z.string().email(),
   categoryIds: z.array(z.number()).min(1),
+  frequency: z.enum(["daily", "weekly", "monthly"]).optional(),
+  interests: z.array(z.string()).optional(),
+  pricingFilter: z.enum(["free", "paid", "all"]).optional(),
+  maxProjects: z.number().min(1).max(50).optional(),
 });
 
 // === EXPLICIT API CONTRACT TYPES ===
@@ -118,5 +147,7 @@ export type InsertProject = z.infer<typeof insertProjectSchema>;
 export type Category = typeof categories.$inferSelect;
 export type InsertCategory = z.infer<typeof insertCategorySchema>;
 export type Like = typeof likes.$inferSelect;
+export type Job = typeof jobs.$inferSelect;
 export type CategorySubscription = typeof categorySubscriptions.$inferSelect;
+export type NewsletterPreference = typeof newsletterPreferences.$inferSelect;
 export type AnonymousSubmission = typeof anonymousSubmissions.$inferSelect;

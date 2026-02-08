@@ -1,9 +1,10 @@
 import { db } from "./db";
 import {
   users, projects, categories, projectCategories, likes,
-  categorySubscriptions, anonymousSubmissions,
+  categorySubscriptions, anonymousSubmissions, jobs, newsletterPreferences,
   type User, type InsertUser, type Project, type InsertProject,
   type Category, type InsertCategory, type Like, type CategorySubscription,
+  type Job, type NewsletterPreference,
 } from "@shared/schema";
 import { eq, and, ilike, or, sql, desc, asc, count } from "drizzle-orm";
 
@@ -38,10 +39,22 @@ export interface IStorage {
   deleteLike(userId: number, projectId: number): Promise<boolean>;
   getUserLikes(userId: number): Promise<Like[]>;
 
+  // Jobs
+  getJob(id: number): Promise<Job | undefined>;
+  getJobByProject(projectId: number): Promise<Job | undefined>;
+  getJobsByFingerprint(fingerprint: string): Promise<Job[]>;
+  createJob(projectId: number): Promise<Job>;
+  updateJob(id: number, updates: Partial<Pick<Job, "status" | "step" | "stepDetail" | "result" | "error">>): Promise<Job | undefined>;
+  getActiveJobs(): Promise<Job[]>;
+
   // Category Subscriptions
   subscribe(email: string, categoryId: number): Promise<CategorySubscription>;
   unsubscribe(email: string, categoryId: number): Promise<boolean>;
   getSubscriptions(email: string): Promise<CategorySubscription[]>;
+
+  // Newsletter Preferences
+  getNewsletterPreference(email: string): Promise<NewsletterPreference | undefined>;
+  upsertNewsletterPreference(email: string, prefs: { frequency?: string; interests?: string; pricingFilter?: string; maxProjects?: number }): Promise<NewsletterPreference>;
 
   // Anonymous Submissions
   getAnonymousSubmissionCount(fingerprint: string): Promise<number>;
@@ -85,6 +98,9 @@ export class DatabaseStorage implements IStorage {
     const { search, categoryId, pricingModel, limit = 20, offset = 0, sortBy = "newest" } = opts;
     const conditions = [];
 
+    // Only show active projects in public listing
+    conditions.push(eq(projects.status, "active"));
+
     if (search) {
       conditions.push(
         or(
@@ -118,7 +134,6 @@ export class DatabaseStorage implements IStorage {
     const rows = await (query as any).orderBy(orderBy).limit(limit).offset(offset);
     const [totalRow] = await countQuery;
 
-    // Handle joined results - extract project data
     const projectList = rows.map((row: any) => row.projects || row);
     return { projects: projectList, total: totalRow.value };
   }
@@ -208,6 +223,52 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(likes).where(eq(likes.userId, userId));
   }
 
+  // === JOBS ===
+  async getJob(id: number): Promise<Job | undefined> {
+    const [job] = await db.select().from(jobs).where(eq(jobs.id, id));
+    return job;
+  }
+
+  async getJobByProject(projectId: number): Promise<Job | undefined> {
+    const [job] = await db.select().from(jobs)
+      .where(eq(jobs.projectId, projectId))
+      .orderBy(desc(jobs.createdAt))
+      .limit(1);
+    return job;
+  }
+
+  async getJobsByFingerprint(fingerprint: string): Promise<Job[]> {
+    const subs = await db.select().from(anonymousSubmissions)
+      .where(eq(anonymousSubmissions.fingerprint, fingerprint));
+    if (subs.length === 0) return [];
+    const projectIds = subs.map(s => s.projectId);
+    const allJobs: Job[] = [];
+    for (const pid of projectIds) {
+      const [job] = await db.select().from(jobs)
+        .where(eq(jobs.projectId, pid))
+        .orderBy(desc(jobs.createdAt))
+        .limit(1);
+      if (job) allJobs.push(job);
+    }
+    return allJobs;
+  }
+
+  async createJob(projectId: number): Promise<Job> {
+    const [job] = await db.insert(jobs).values({ projectId }).returning();
+    return job;
+  }
+
+  async updateJob(id: number, updates: Partial<Pick<Job, "status" | "step" | "stepDetail" | "result" | "error">>): Promise<Job | undefined> {
+    const [job] = await db.update(jobs).set({ ...updates, updatedAt: new Date() }).where(eq(jobs.id, id)).returning();
+    return job;
+  }
+
+  async getActiveJobs(): Promise<Job[]> {
+    return db.select().from(jobs)
+      .where(or(eq(jobs.status, "queued"), eq(jobs.status, "running")))
+      .orderBy(asc(jobs.createdAt));
+  }
+
   // === CATEGORY SUBSCRIPTIONS ===
   async subscribe(email: string, categoryId: number): Promise<CategorySubscription> {
     const [sub] = await db.insert(categorySubscriptions)
@@ -231,6 +292,27 @@ export class DatabaseStorage implements IStorage {
 
   async getSubscriptions(email: string): Promise<CategorySubscription[]> {
     return db.select().from(categorySubscriptions).where(eq(categorySubscriptions.email, email));
+  }
+
+  // === NEWSLETTER PREFERENCES ===
+  async getNewsletterPreference(email: string): Promise<NewsletterPreference | undefined> {
+    const [pref] = await db.select().from(newsletterPreferences).where(eq(newsletterPreferences.email, email));
+    return pref;
+  }
+
+  async upsertNewsletterPreference(email: string, prefs: { frequency?: string; interests?: string; pricingFilter?: string; maxProjects?: number }): Promise<NewsletterPreference> {
+    const existing = await this.getNewsletterPreference(email);
+    if (existing) {
+      const [updated] = await db.update(newsletterPreferences)
+        .set({ ...prefs, updatedAt: new Date() })
+        .where(eq(newsletterPreferences.email, email))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(newsletterPreferences)
+      .values({ email, ...prefs })
+      .returning();
+    return created;
   }
 
   // === ANONYMOUS SUBMISSIONS ===

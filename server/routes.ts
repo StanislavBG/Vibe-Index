@@ -3,9 +3,8 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
 import { setupAuth, hashPassword, comparePasswords, requireAuth } from "./auth";
-import {
-  registerUserSchema, loginUserSchema, submitProjectSchema, subscribeSchema,
-} from "@shared/schema";
+import { registerUserSchema, loginUserSchema, submitProjectSchema, subscribeSchema } from "@shared/schema";
+import { processJob } from "./scraper";
 import crypto from "crypto";
 
 const DEFAULT_CATEGORIES = [
@@ -32,10 +31,7 @@ async function seedCategories() {
   }
 }
 
-export async function registerRoutes(
-  httpServer: Server,
-  app: Express
-): Promise<Server> {
+export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   setupAuth(app);
   await seedCategories();
 
@@ -46,41 +42,26 @@ export async function registerRoutes(
     try {
       const input = registerUserSchema.parse(req.body);
       const existingUser = await storage.getUserByUsername(input.username);
-      if (existingUser) {
-        return res.status(400).json({ message: "Username already taken" });
-      }
+      if (existingUser) return res.status(400).json({ message: "Username already taken" });
       const existingEmail = await storage.getUserByEmail(input.email);
-      if (existingEmail) {
-        return res.status(400).json({ message: "Email already registered" });
-      }
+      if (existingEmail) return res.status(400).json({ message: "Email already registered" });
       const hashedPassword = await hashPassword(input.password);
-      const user = await storage.createUser({
-        username: input.username,
-        email: input.email,
-        password: hashedPassword,
-      });
+      const user = await storage.createUser({ username: input.username, email: input.email, password: hashedPassword });
       req.login(user, (err) => {
         if (err) return res.status(500).json({ message: "Login failed after registration" });
         const { password, ...safeUser } = user;
         return res.status(201).json(safeUser);
       });
     } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
-      }
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
       throw err;
     }
   });
 
   app.post("/api/auth/login", (req, res, next) => {
-    try {
-      loginUserSchema.parse(req.body);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
+    try { loginUserSchema.parse(req.body); } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
     }
-
     const passport = require("passport");
     passport.authenticate("local", (err: any, user: any, info: any) => {
       if (err) return next(err);
@@ -101,15 +82,13 @@ export async function registerRoutes(
   });
 
   app.get("/api/auth/me", (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Not authenticated" });
-    }
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const { password, ...safeUser } = req.user!;
     res.json(safeUser);
   });
 
   // ==========================================
-  // PROJECTS ROUTES
+  // PROJECTS — Submit triggers agent job
   // ==========================================
   app.get("/api/projects", async (req, res) => {
     const { search, category, pricing, limit, offset, sort } = req.query;
@@ -130,14 +109,16 @@ export async function registerRoutes(
     const project = await storage.getProject(id);
     if (!project) return res.status(404).json({ message: "Project not found" });
     const cats = await storage.getProjectCategories(id);
+    const job = await storage.getJobByProject(id);
     let liked = false;
     if (req.isAuthenticated()) {
       const like = await storage.getLike(req.user!.id, id);
       liked = !!like;
     }
-    res.json({ ...project, categories: cats, liked });
+    res.json({ ...project, categories: cats, liked, job: job || null });
   });
 
+  // Submit project: creates project + kicks off scraper agent
   app.post("/api/projects", async (req, res) => {
     try {
       const input = submitProjectSchema.parse(req.body);
@@ -150,47 +131,40 @@ export async function registerRoutes(
         }
         const project = await storage.createProject({
           url: input.url,
-          name: input.name || null,
-          shortDescription: input.shortDescription || null,
           ownerId: user.id,
           claimed: true,
+          status: "pending",
         });
-        if (input.categoryIds && input.categoryIds.length > 0) {
-          await storage.setProjectCategories(project.id, input.categoryIds);
-        }
         // Deduct credit
         if (user.freeListingsRemaining > 0) {
           await storage.updateUserCredits(user.id, { freeListingsRemaining: user.freeListingsRemaining - 1 });
         } else {
           await storage.updateUserCredits(user.id, { paidListingCredits: user.paidListingCredits - 1 });
         }
-        const cats = await storage.getProjectCategories(project.id);
-        return res.status(201).json({ ...project, categories: cats });
+        // Create and start analysis job
+        const job = await storage.createJob(project.id);
+        processJob(job.id).catch(console.error); // fire and forget
+        return res.status(201).json({ project, job });
       } else {
         // Anonymous submission
         const anonCount = await storage.getAnonymousSubmissionCount(fingerprint);
         if (anonCount >= 3) {
-          return res.status(403).json({ message: "Anonymous submission limit reached. Please create an account to submit more projects." });
+          return res.status(403).json({ message: "Anonymous submission limit reached. Create an account to submit more projects." });
         }
         const token = crypto.randomBytes(16).toString("hex");
         const project = await storage.createProject({
           url: input.url,
-          name: input.name || null,
-          shortDescription: input.shortDescription || null,
           anonymousToken: token,
           claimed: false,
+          status: "pending",
         });
-        if (input.categoryIds && input.categoryIds.length > 0) {
-          await storage.setProjectCategories(project.id, input.categoryIds);
-        }
         await storage.createAnonymousSubmission(fingerprint, project.id);
-        const cats = await storage.getProjectCategories(project.id);
-        return res.status(201).json({ ...project, categories: cats, anonymousToken: token });
+        const job = await storage.createJob(project.id);
+        processJob(job.id).catch(console.error);
+        return res.status(201).json({ project, job, anonymousToken: token });
       }
     } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
-      }
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
       throw err;
     }
   });
@@ -201,17 +175,11 @@ export async function registerRoutes(
     const project = await storage.getProject(id);
     if (!project) return res.status(404).json({ message: "Project not found" });
     if (project.ownerId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
-
     const { categoryIds, ...updates } = req.body;
     const updated = await storage.updateProject(id, updates);
-    if (categoryIds && Array.isArray(categoryIds)) {
-      await storage.setProjectCategories(id, categoryIds);
-    }
-
-    // Award +1 like credit for meaningful edits
+    if (categoryIds && Array.isArray(categoryIds)) await storage.setProjectCategories(id, categoryIds);
     const user = req.user!;
     await storage.updateUserCredits(user.id, { likesRemaining: user.likesRemaining + 1 });
-
     const cats = await storage.getProjectCategories(id);
     res.json({ ...updated, categories: cats });
   });
@@ -223,7 +191,6 @@ export async function registerRoutes(
     if (!project) return res.status(404).json({ message: "Project not found" });
     if (project.ownerId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
     await storage.deleteProject(id);
-    // Return one credit
     const user = req.user!;
     if (user.freeListingsRemaining < 3) {
       await storage.updateUserCredits(user.id, { freeListingsRemaining: user.freeListingsRemaining + 1 });
@@ -234,12 +201,30 @@ export async function registerRoutes(
   });
 
   app.get("/api/my-projects", requireAuth, async (req, res) => {
-    const projects = await storage.getProjectsByOwner(req.user!.id);
-    res.json(projects);
+    const userProjects = await storage.getProjectsByOwner(req.user!.id);
+    // Include job status for each project
+    const withJobs = await Promise.all(
+      userProjects.map(async (p) => {
+        const job = await storage.getJobByProject(p.id);
+        return { ...p, job: job || null };
+      })
+    );
+    res.json(withJobs);
   });
 
   // ==========================================
-  // CATEGORIES ROUTES
+  // JOBS — poll for status
+  // ==========================================
+  app.get("/api/jobs/:id", async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid job ID" });
+    const job = await storage.getJob(id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    res.json(job);
+  });
+
+  // ==========================================
+  // CATEGORIES
   // ==========================================
   app.get("/api/categories", async (_req, res) => {
     const cats = await storage.getCategories();
@@ -253,20 +238,17 @@ export async function registerRoutes(
   });
 
   // ==========================================
-  // LIKES ROUTES
+  // LIKES
   // ==========================================
   app.post("/api/projects/:id/like", requireAuth, async (req, res) => {
     const projectId = parseInt(req.params.id as string);
     if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
     const user = req.user!;
-    if (user.likesRemaining <= 0) {
-      return res.status(403).json({ message: "No likes remaining. Purchase more to continue." });
-    }
+    if (user.likesRemaining <= 0) return res.status(403).json({ message: "No likes remaining. Purchase more to continue." });
     const existing = await storage.getLike(user.id, projectId);
     if (existing) return res.status(400).json({ message: "Already liked this project" });
     const project = await storage.getProject(projectId);
     if (!project) return res.status(404).json({ message: "Project not found" });
-
     await storage.createLike(user.id, projectId);
     await storage.incrementLikesCount(projectId, 1);
     await storage.updateUserCredits(user.id, { likesRemaining: user.likesRemaining - 1 });
@@ -286,7 +268,7 @@ export async function registerRoutes(
   });
 
   // ==========================================
-  // SUBSCRIPTIONS ROUTES
+  // SUBSCRIPTIONS — enhanced with preferences
   // ==========================================
   app.post("/api/subscribe", async (req, res) => {
     try {
@@ -296,11 +278,16 @@ export async function registerRoutes(
         const sub = await storage.subscribe(input.email, categoryId);
         results.push(sub);
       }
+      // Save newsletter preferences
+      await storage.upsertNewsletterPreference(input.email, {
+        frequency: input.frequency || "weekly",
+        interests: input.interests ? JSON.stringify(input.interests) : undefined,
+        pricingFilter: input.pricingFilter || "all",
+        maxProjects: input.maxProjects || 10,
+      });
       res.status(201).json({ message: "Subscribed successfully", subscriptions: results });
     } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       throw err;
     }
   });

@@ -9,6 +9,18 @@ export interface Category {
   icon: string | null;
 }
 
+export interface Job {
+  id: number;
+  projectId: number;
+  status: string;
+  step: string | null;
+  stepDetail: string | null;
+  result: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Project {
   id: number;
   url: string;
@@ -30,6 +42,7 @@ export interface Project {
   updatedAt: string;
   categories?: Category[];
   liked?: boolean;
+  job?: Job | null;
 }
 
 export function useProjects(opts: {
@@ -47,18 +60,13 @@ export function useProjects(opts: {
   if (opts.sort) params.set("sort", opts.sort);
   if (opts.limit) params.set("limit", String(opts.limit));
   if (opts.offset) params.set("offset", String(opts.offset));
-
   const queryString = params.toString();
   const url = `/api/projects${queryString ? `?${queryString}` : ""}`;
-
-  return useQuery<{ projects: Project[]; total: number }>({
-    queryKey: [url],
-    staleTime: 30 * 1000,
-  });
+  return useQuery<{ projects: Project[]; total: number }>({ queryKey: [url], staleTime: 30 * 1000 });
 }
 
 export function useProject(id: number | null) {
-  return useQuery<Project & { categories: Category[]; liked: boolean }>({
+  return useQuery<Project & { categories: Category[]; liked: boolean; job: Job | null }>({
     queryKey: [`/api/projects/${id}`],
     enabled: id !== null,
     staleTime: 30 * 1000,
@@ -66,20 +74,32 @@ export function useProject(id: number | null) {
 }
 
 export function useCategories() {
-  return useQuery<Category[]>({
-    queryKey: ["/api/categories"],
-    staleTime: 5 * 60 * 1000,
+  return useQuery<Category[]>({ queryKey: ["/api/categories"], staleTime: 5 * 60 * 1000 });
+}
+
+export function useJob(jobId: number | null) {
+  return useQuery<Job>({
+    queryKey: [`/api/jobs/${jobId}`],
+    enabled: jobId !== null,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 1000;
+      if (data.status === "completed" || data.status === "failed") return false;
+      return 1500;
+    },
+    staleTime: 0,
   });
 }
 
 export function useSubmitProject() {
   return useMutation({
-    mutationFn: async (data: { url: string; name?: string; shortDescription?: string; categoryIds?: number[] }) => {
+    mutationFn: async (data: { url: string }) => {
       const res = await apiRequest("POST", "/api/projects", data);
-      return res.json();
+      return res.json() as Promise<{ project: Project; job: Job; anonymousToken?: string }>;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     },
   });
 }
@@ -100,7 +120,14 @@ export function useLikeProject() {
 
 export function useSubscribe() {
   return useMutation({
-    mutationFn: async (data: { email: string; categoryIds: number[] }) => {
+    mutationFn: async (data: {
+      email: string;
+      categoryIds: number[];
+      frequency?: string;
+      interests?: string[];
+      pricingFilter?: string;
+      maxProjects?: number;
+    }) => {
       const res = await apiRequest("POST", "/api/subscribe", data);
       return res.json();
     },

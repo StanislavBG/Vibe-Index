@@ -1,36 +1,25 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { motion } from "framer-motion";
-import { Link2, ArrowRight, Check, Info, FileText } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Link2, ArrowRight, Info, FileText, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Navbar } from "@/components/Navbar";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
-import { useCategories, useSubmitProject } from "@/hooks/use-projects";
+import { JobProgress } from "@/components/JobProgress";
+import { useSubmitProject } from "@/hooks/use-projects";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Submit() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated } = useAuth();
-  const { data: categories } = useCategories();
   const submitMutation = useSubmitProject();
   const { toast } = useToast();
 
   const [url, setUrl] = useState("");
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [selectedCategories, setSelectedCategories] = useState<number[]>([]);
-  const [showOptional, setShowOptional] = useState(false);
-
-  const toggleCategory = (id: number) => {
-    setSelectedCategories((prev) =>
-      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
-    );
-  };
+  const [activeJob, setActiveJob] = useState<{ jobId: number; projectId: number } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,14 +28,11 @@ export default function Submit() {
       return;
     }
     try {
-      const project = await submitMutation.mutateAsync({
-        url,
-        name: name || undefined,
-        shortDescription: description || undefined,
-        categoryIds: selectedCategories.length > 0 ? selectedCategories : undefined,
-      });
-      toast({ title: "Project submitted!", description: "Your project is now live on Vibe Index." });
-      navigate(`/project/${project.id}`);
+      const result = await submitMutation.mutateAsync({ url });
+      if (result.anonymousToken) {
+        localStorage.setItem(`vibe-token-${result.project.id}`, result.anonymousToken);
+      }
+      setActiveJob({ jobId: result.job.id, projectId: result.project.id });
     } catch (err: any) {
       const message = err.message || "Submission failed";
       if (message.includes("Anonymous submission limit")) {
@@ -80,14 +66,14 @@ export default function Submit() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="max-w-lg mx-auto space-y-8"
+          className="max-w-lg mx-auto space-y-6"
         >
           <div className="text-center space-y-2">
             <h1 className="text-3xl font-bold tracking-tight">
               Submit a Project
             </h1>
             <p className="text-sm text-muted-foreground">
-              Just paste a link. We'll handle the rest.
+              Paste a link. Our agent will analyze and build the listing for you.
             </p>
             {isAuthenticated && (
               <p className="text-xs text-muted-foreground">
@@ -101,108 +87,88 @@ export default function Submit() {
             )}
           </div>
 
-          <Card className="glass-card p-6">
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Project URL</label>
-                <div className="relative">
-                  <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    type="url"
-                    placeholder="https://your-project.com"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    className="pl-10 h-12 text-base"
-                    required
-                    autoFocus
-                  />
-                </div>
-              </div>
-
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowOptional(!showOptional)}
-                className="text-muted-foreground text-xs"
+          <AnimatePresence mode="wait">
+            {!activeJob ? (
+              <motion.div
+                key="form"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="space-y-4"
               >
-                {showOptional ? "Hide" : "Show"} optional details
-              </Button>
-
-              {showOptional && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  className="space-y-4"
-                >
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Project Name</label>
-                    <Input
-                      placeholder="My Awesome Project"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Short Description</label>
-                    <Textarea
-                      placeholder="A brief description of what your project does..."
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      className="resize-none"
-                      maxLength={300}
-                      rows={3}
-                    />
-                    <p className="text-xs text-muted-foreground text-right">{description.length}/300</p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Categories</label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {categories?.map((cat) => (
-                        <Badge
-                          key={cat.id}
-                          variant={selectedCategories.includes(cat.id) ? "default" : "outline"}
-                          className="cursor-pointer px-2.5 py-1 text-xs rounded-md transition-colors"
-                          onClick={() => toggleCategory(cat.id)}
-                        >
-                          {selectedCategories.includes(cat.id) && <Check className="w-3 h-3 mr-1" />}
-                          {cat.name}
-                        </Badge>
-                      ))}
+                <Card className="glass-card p-6">
+                  <form onSubmit={handleSubmit} className="space-y-5">
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium">Project URL</label>
+                      <div className="relative">
+                        <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          type="url"
+                          placeholder="https://your-project.com"
+                          value={url}
+                          onChange={(e) => setUrl(e.target.value)}
+                          className="pl-10 h-12 text-base"
+                          required
+                          autoFocus
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        We'll visit your site, extract details, and generate a listing automatically.
+                      </p>
                     </div>
-                  </div>
-                </motion.div>
-              )}
 
-              <Button
-                type="submit"
-                size="lg"
-                className="w-full h-12 group"
-                disabled={submitMutation.isPending}
-              >
-                {submitMutation.isPending ? "Submitting..." : "Submit Project"}
-                <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-              </Button>
-            </form>
-          </Card>
+                    <Button
+                      type="submit"
+                      size="lg"
+                      className="w-full h-12 group"
+                      disabled={submitMutation.isPending}
+                    >
+                      {submitMutation.isPending ? "Starting analysis..." : "Analyze & Submit"}
+                      <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                    </Button>
+                  </form>
+                </Card>
 
-          <Card className="glass-card p-5">
-            <div className="flex items-start gap-3">
-              <Info className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-              <div className="space-y-1.5">
-                <h3 className="font-medium text-sm">Full control over your listing</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Add a <code className="text-xs bg-muted px-1 py-0.5 rounded font-mono">vibe-index.json</code> file
-                  to your site root. We'll read it to generate your project page.
-                </p>
-                <details className="text-xs">
-                  <summary className="cursor-pointer font-medium flex items-center gap-1 mt-1">
-                    <FileText className="w-3.5 h-3.5" />
-                    View template
-                  </summary>
-                  <pre className="mt-2 p-3 bg-muted rounded-lg text-[11px] overflow-x-auto font-mono">
+                {/* Ownership messaging for anonymous users */}
+                {!isAuthenticated && (
+                  <Card className="glass-card p-5">
+                    <div className="flex items-start gap-3">
+                      <UserPlus className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                      <div className="space-y-1.5">
+                        <h3 className="font-medium text-sm">Want to control your listing?</h3>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          Anonymous submissions are public but unclaimed. Create an account to edit
+                          your project details, track likes, and manage your listings from a dashboard.
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-1 text-xs h-7"
+                          onClick={() => navigate("/register")}
+                        >
+                          Create Account
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+
+                {/* vibe-index.json info */}
+                <Card className="glass-card p-5">
+                  <div className="flex items-start gap-3">
+                    <Info className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                    <div className="space-y-1.5">
+                      <h3 className="font-medium text-sm">Want full control over your listing?</h3>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Add a <code className="text-xs bg-muted px-1 py-0.5 rounded font-mono">vibe-index.json</code> file
+                        to your site root. Our agent reads it first to build your page.
+                      </p>
+                      <details className="text-xs">
+                        <summary className="cursor-pointer font-medium flex items-center gap-1 mt-1">
+                          <FileText className="w-3.5 h-3.5" />
+                          View template
+                        </summary>
+                        <pre className="mt-2 p-3 bg-muted rounded-lg text-[11px] overflow-x-auto font-mono">
 {`{
   "name": "My Project",
   "description": "A short description",
@@ -215,11 +181,50 @@ export default function Submit() {
   "tags": ["ai", "developer-tools", "saas"],
   "categories": ["ai-ml", "dev-tools"]
 }`}
-                  </pre>
-                </details>
-              </div>
-            </div>
-          </Card>
+                        </pre>
+                      </details>
+                    </div>
+                  </div>
+                </Card>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="progress"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <JobProgress
+                  jobId={activeJob.jobId}
+                  projectId={activeJob.projectId}
+                  onClose={() => {
+                    setActiveJob(null);
+                    setUrl("");
+                    toast({
+                      title: "Running in background",
+                      description: "Check your dashboard to see the progress.",
+                    });
+                    if (isAuthenticated) {
+                      navigate("/dashboard");
+                    }
+                  }}
+                />
+
+                <div className="mt-4 text-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setActiveJob(null);
+                      setUrl("");
+                    }}
+                    className="text-xs text-muted-foreground"
+                  >
+                    Submit another project
+                  </Button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
       </div>
     </div>
