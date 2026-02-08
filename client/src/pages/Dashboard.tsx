@@ -1,0 +1,190 @@
+import { useLocation } from "wouter";
+import { motion } from "framer-motion";
+import { Plus, ExternalLink, Trash2, Edit, Heart, CreditCard } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Navbar } from "@/components/Navbar";
+import { BackgroundEffect } from "@/components/BackgroundEffect";
+import { useAuth } from "@/hooks/use-auth";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { type Project } from "@/hooks/use-projects";
+
+export default function Dashboard() {
+  const [, navigate] = useLocation();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { toast } = useToast();
+
+  const { data: myProjects, isLoading } = useQuery<Project[]>({
+    queryKey: ["/api/my-projects"],
+    enabled: isAuthenticated,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/projects/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/my-projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "Project deleted", description: "Your listing credit has been restored." });
+    },
+  });
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen w-full relative">
+        <BackgroundEffect />
+        <Navbar />
+        <div className="pt-24 flex items-center justify-center">
+          <div className="animate-pulse text-muted-foreground">Loading...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    navigate("/login");
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen w-full relative">
+      <BackgroundEffect />
+      <Navbar />
+
+      <div className="pt-24 pb-16 px-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="max-w-4xl mx-auto space-y-8"
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-black tracking-tight">Dashboard</h1>
+              <p className="text-muted-foreground mt-1">Manage your projects and credits</p>
+            </div>
+            <Button onClick={() => navigate("/submit")} className="gap-2 rounded-xl">
+              <Plus className="w-4 h-4" />
+              New Project
+            </Button>
+          </div>
+
+          {/* Credits Overview */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="glass-card p-6">
+              <div className="text-sm text-muted-foreground mb-1">Listing Credits</div>
+              <div className="text-3xl font-bold">
+                {(user?.freeListingsRemaining ?? 0) + (user?.paidListingCredits ?? 0)}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {user?.freeListingsRemaining ?? 0} free + {user?.paidListingCredits ?? 0} paid
+              </div>
+            </Card>
+            <Card className="glass-card p-6">
+              <div className="text-sm text-muted-foreground mb-1">Likes Remaining</div>
+              <div className="text-3xl font-bold flex items-center gap-2">
+                <Heart className="w-6 h-6 text-accent" />
+                {user?.likesRemaining ?? 0}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Edit projects to earn more
+              </div>
+            </Card>
+            <Card className="glass-card p-6">
+              <div className="text-sm text-muted-foreground mb-1">My Projects</div>
+              <div className="text-3xl font-bold">{myProjects?.length ?? 0}</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Published listings
+              </div>
+            </Card>
+          </div>
+
+          {/* Buy Credits CTA */}
+          <Card className="glass-card p-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <CreditCard className="w-5 h-5 text-primary" />
+              <div>
+                <div className="font-bold text-sm">Need more credits?</div>
+                <div className="text-xs text-muted-foreground">$1 per additional listing or like credit (Stripe integration coming soon)</div>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" className="rounded-lg" disabled>
+              Coming Soon
+            </Button>
+          </Card>
+
+          {/* Projects List */}
+          <div className="space-y-4">
+            <h2 className="text-xl font-bold">My Projects</h2>
+            {isLoading ? (
+              <div className="space-y-4">
+                {[...Array(3)].map((_, i) => (
+                  <Card key={i} className="glass-card p-6 h-24 animate-pulse" />
+                ))}
+              </div>
+            ) : myProjects?.length === 0 ? (
+              <Card className="glass-card p-8 text-center">
+                <p className="text-muted-foreground mb-4">You haven't submitted any projects yet.</p>
+                <Button onClick={() => navigate("/submit")} className="rounded-xl">
+                  Submit Your First Project
+                </Button>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {myProjects?.map((project) => (
+                  <Card key={project.id} className="glass-card p-5 flex items-center justify-between hover:shadow-lg transition-all">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold truncate">
+                          {project.name || new URL(project.url).hostname.replace("www.", "")}
+                        </h3>
+                        <Badge variant="secondary" className="text-xs rounded-full flex-shrink-0">
+                          {project.likesCount} likes
+                        </Badge>
+                      </div>
+                      <a
+                        href={project.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mt-1"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        {project.url}
+                      </a>
+                    </div>
+                    <div className="flex items-center gap-2 ml-4">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigate(`/project/${project.id}`)}
+                        className="gap-1"
+                      >
+                        View
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          if (confirm("Delete this project? Your listing credit will be restored.")) {
+                            deleteMutation.mutate(project.id);
+                          }
+                        }}
+                        className="text-destructive hover:text-destructive gap-1"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}

@@ -1,13 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@shared/routes";
 
 export function useHello() {
   return useQuery({
-    queryKey: [api.hello.path],
+    queryKey: ["/api/hello"],
     queryFn: async () => {
-      const res = await fetch(api.hello.path);
+      const res = await fetch("/api/hello");
       if (!res.ok) throw new Error("Failed to fetch hello message");
-      return api.hello.responses[200].parse(await res.json());
+      return res.json() as Promise<{ message: string }>;
     },
   });
 }
