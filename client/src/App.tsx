@@ -5,11 +5,20 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/Home";
+import Submit from "@/pages/Submit";
+import ProjectDetail from "@/pages/ProjectDetail";
+import Dashboard from "@/pages/Dashboard";
+import { LoginPage, RegisterPage } from "@/pages/Auth";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/submit" component={Submit} />
+      <Route path="/project/:id" component={ProjectDetail} />
+      <Route path="/dashboard" component={Dashboard} />
+      <Route path="/login" component={LoginPage} />
+      <Route path="/register" component={RegisterPage} />
       <Route component={NotFound} />
     </Switch>
   );
