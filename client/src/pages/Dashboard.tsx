@@ -1,6 +1,6 @@
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { motion } from "framer-motion";
-import { Plus, ExternalLink, Trash2, Heart, CreditCard, Loader2, Check, AlertCircle, Pencil, Share2, Trophy, Clock } from "lucide-react";
+import { Plus, ExternalLink, Trash2, Heart, CreditCard, Loader2, Check, AlertCircle, Pencil, Share2, Trophy, Clock, Zap, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { type Project, type Job, useBalance, useSocialShares, useSubmitSocialShare } from "@/hooks/use-projects";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 type ProjectWithJob = Project & { job: Job | null };
 
@@ -68,8 +68,27 @@ const PLATFORMS = [
   { value: "other", label: "Other" },
 ];
 
+const CREDIT_PACKAGES = [
+  {
+    priceId: "price_1SyevyJNQ49zVK9WlFpLkg0m",
+    credits: 1,
+    price: "$1",
+    label: "1 Listing Credit",
+    description: "Submit one more project",
+  },
+  {
+    priceId: "price_1SyewIJNQ49zVK9W1zUjHvTW",
+    credits: 10,
+    price: "$5",
+    label: "10 Listing Credits",
+    description: "Best value — 50% off per credit",
+    popular: true,
+  },
+];
+
 export default function Dashboard() {
   const [, navigate] = useLocation();
+  const searchString = useSearch();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const { data: balance } = useBalance();
@@ -78,6 +97,45 @@ export default function Dashboard() {
 
   const [shareForm, setShareForm] = useState({ projectId: "", platform: "twitter", proofUrl: "" });
   const [showShareForm, setShowShareForm] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const purchase = params.get("purchase");
+    const sessionId = params.get("session_id");
+
+    if (purchase === "success" && sessionId) {
+      apiRequest("POST", "/api/stripe/fulfill", { sessionId })
+        .then(() => {
+          toast({ title: "Purchase complete!", description: "Your listing credits have been added to your account." });
+          queryClient.invalidateQueries({ queryKey: ["/api/balance"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+        })
+        .catch(() => {
+          toast({ title: "Purchase complete!", description: "Your credits will be available shortly." });
+        })
+        .finally(() => {
+          navigate("/dashboard", { replace: true });
+        });
+    } else if (purchase === "cancelled") {
+      toast({ title: "Purchase cancelled", description: "No charges were made.", variant: "destructive" });
+      navigate("/dashboard", { replace: true });
+    }
+  }, [searchString]);
+
+  const checkoutMutation = useMutation({
+    mutationFn: async (priceId: string) => {
+      const res = await apiRequest("POST", "/api/stripe/checkout", { priceId });
+      return await res.json();
+    },
+    onSuccess: (data: { url: string }) => {
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: "Checkout failed", description: error.message, variant: "destructive" });
+    },
+  });
 
   const handleSubmitShare = async () => {
     if (!shareForm.projectId || !shareForm.proofUrl) {
@@ -209,6 +267,51 @@ export default function Dashboard() {
               </div>
             </Card>
           </div>
+
+          {/* Buy Credits Section */}
+          <Card className="glass-card p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <ShoppingCart className="w-5 h-5 text-muted-foreground" />
+              <div>
+                <div className="font-bold text-sm">Buy Listing Credits</div>
+                <div className="text-xs text-muted-foreground">Purchase credits to submit more projects instantly.</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {CREDIT_PACKAGES.map((pkg) => (
+                <Card
+                  key={pkg.priceId}
+                  data-testid={`card-credit-package-${pkg.credits}`}
+                  className="relative p-5 flex flex-col gap-3 border"
+                >
+                  {pkg.popular && (
+                    <Badge variant="secondary" className="absolute -top-2.5 right-3 text-xs rounded-md gap-1">
+                      <Zap className="w-3 h-3" />
+                      Best Value
+                    </Badge>
+                  )}
+                  <div>
+                    <div className="text-2xl font-bold">{pkg.price}</div>
+                    <div className="font-semibold text-sm mt-1">{pkg.label}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{pkg.description}</div>
+                  </div>
+                  <Button
+                    data-testid={`button-buy-${pkg.credits}-credits`}
+                    onClick={() => checkoutMutation.mutate(pkg.priceId)}
+                    disabled={checkoutMutation.isPending}
+                    className="w-full gap-2"
+                  >
+                    {checkoutMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <CreditCard className="w-4 h-4" />
+                    )}
+                    Buy Now
+                  </Button>
+                </Card>
+              ))}
+            </div>
+          </Card>
 
           {/* Earn Credits Section */}
           <Card className="glass-card p-6">
