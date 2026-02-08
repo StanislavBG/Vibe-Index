@@ -1,23 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation, Link } from "wouter";
-import { SignedIn, SignedOut, UserButton } from "@clerk/clerk-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, type NotificationData } from "@/hooks/use-projects";
-import { Menu, X, Bell, CheckCheck, ExternalLink } from "lucide-react";
-
-function timeAgo(dateString: string): string {
-  const now = new Date();
-  const date = new Date(dateString);
-  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
+import { LogOut, Menu, X, Bell, CheckCheck, ExternalLink } from "lucide-react";
+import { timeAgo } from "@/lib/time";
 
 function NotificationBell() {
   const [, navigate] = useLocation();
@@ -167,11 +154,16 @@ export function Navbar() {
                 {(user?.freeListingsRemaining ?? 0) + (user?.paidListingCredits ?? 0)} credits
               </div>
               <NotificationBell />
-              <UserButton afterSignOutUrl="/" />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => logout()}
+                className="gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+              </Button>
             </div>
-          </SignedIn>
-
-          <SignedOut>
+          ) : (
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
@@ -190,7 +182,7 @@ export function Navbar() {
                 Sign up
               </Button>
             </div>
-          </SignedOut>
+          )}
         </div>
 
         <Button
@@ -215,17 +207,24 @@ export function Navbar() {
           <Link href="/subscribe" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
             Stay in the Loop
           </Link>
-          <SignedIn>
-            <div className="border-t border-border/50 pt-3">
-              <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
-                Dashboard
-              </Link>
-            </div>
-            <div className="pt-2">
-              <UserButton afterSignOutUrl="/" />
-            </div>
-          </SignedIn>
-          <SignedOut>
+          {isAuthenticated ? (
+            <>
+              <div className="border-t border-border/50 pt-3">
+                <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
+                  Dashboard
+                </Link>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { logout(); setMenuOpen(false); }}
+                className="w-full justify-start gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                Log out
+              </Button>
+            </>
+          ) : (
             <div className="flex gap-2 pt-2 border-t border-border/50">
               <Button
                 variant="outline"
@@ -243,7 +242,7 @@ export function Navbar() {
                 Sign up
               </Button>
             </div>
-          </SignedOut>
+          )}
         </div>
       )}
     </nav>
