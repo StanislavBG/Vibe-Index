@@ -1,23 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation, Link } from "wouter";
-import { SignedIn, SignedOut, UserButton } from "@clerk/clerk-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, type NotificationData } from "@/hooks/use-projects";
-import { LogOut, User, Menu, X, Bell, Check, CheckCheck, ExternalLink } from "lucide-react";
-
-function timeAgo(dateString: string): string {
-  const now = new Date();
-  const date = new Date(dateString);
-  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
+import { LogOut, Menu, X, Bell, CheckCheck, ExternalLink } from "lucide-react";
+import { timeAgo } from "@/lib/time";
 
 function NotificationBell() {
   const [, navigate] = useLocation();
@@ -170,15 +157,13 @@ export function Navbar() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => logout.mutate()}
+                onClick={() => logout()}
                 className="gap-2"
               >
                 <LogOut className="w-4 h-4" />
               </Button>
             </div>
-          </SignedIn>
-
-          <SignedOut>
+          ) : (
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
@@ -197,7 +182,7 @@ export function Navbar() {
                 Sign up
               </Button>
             </div>
-          </SignedOut>
+          )}
         </div>
 
         <Button
@@ -232,7 +217,7 @@ export function Navbar() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => { logout.mutate(); setMenuOpen(false); }}
+                onClick={() => { logout(); setMenuOpen(false); }}
                 className="w-full justify-start gap-2"
               >
                 <LogOut className="w-4 h-4" />
@@ -257,7 +242,7 @@ export function Navbar() {
                 Sign up
               </Button>
             </div>
-          </SignedOut>
+          )}
         </div>
       )}
     </nav>

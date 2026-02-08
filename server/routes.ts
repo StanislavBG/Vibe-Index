@@ -2,8 +2,9 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
-import { setupAuth, hashPassword, comparePasswords, requireAuth } from "./auth";
-import { registerUserSchema, loginUserSchema, submitProjectSchema, subscribeSchema, createCommentSchema, submitSocialShareSchema } from "@shared/schema";
+import { setupAuth, requireAuth, syncClerkUser } from "./auth";
+import { getAuth } from "@clerk/express";
+import { submitProjectSchema, subscribeSchema, createCommentSchema, submitSocialShareSchema } from "@shared/schema";
 import { processJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
 import crypto from "crypto";
 import multer from "multer";
@@ -191,8 +192,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       res.json({ query: transcript });
-    } catch (err: any) {
-      return res.status(500).json({ message: "Voice search failed", detail: err.message });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return res.status(500).json({ message: "Voice search failed", detail: message });
     }
   });
 
@@ -205,11 +207,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const job = await storage.getJobByProject(id);
     let liked = false;
     let followed = false;
-    if (req.isAuthenticated()) {
-      const like = await storage.getLike(req.user!.id, id);
-      liked = !!like;
-      const follow = await storage.getFollow(req.user!.id, id);
-      followed = !!follow;
+    const auth = getAuth(req);
+    if (auth?.userId) {
+      const dbUser = await storage.getUserByClerkId(auth.userId);
+      if (dbUser) {
+        const like = await storage.getLike(dbUser.id, id);
+        liked = !!like;
+        const follow = await storage.getFollow(dbUser.id, id);
+        followed = !!follow;
+      }
     }
     res.json({ ...project, categories: cats, liked, followed, job: job || null });
   });
@@ -419,8 +425,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       await storage.updateJob(id, { result: JSON.stringify(refined) });
       res.json({ transcript, draft: refined });
-    } catch (err: any) {
-      return res.status(500).json({ message: "Voice processing failed", detail: err.message });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return res.status(500).json({ message: "Voice processing failed", detail: message });
     }
   });
 
@@ -436,8 +443,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       await approveAndPublish(id);
       const project = await storage.getProject(job.projectId);
       res.json({ message: "Project published", project });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message || "Failed to publish" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to publish";
+      res.status(500).json({ message });
     }
   });
 
@@ -519,10 +527,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ==========================================
   // FOLLOWS
   // ==========================================
-  app.post("/api/projects/:id/follow", requireAuth, async (req, res) => {
+  app.post("/api/projects/:id/follow", requireAuth, syncClerkUser, async (req, res) => {
     const projectId = parseInt(req.params.id as string);
     if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
-    const user = req.user!;
+    const user = req.dbUser!;
     const existing = await storage.getFollow(user.id, projectId);
     if (existing) return res.status(400).json({ message: "Already following this project" });
     const project = await storage.getProject(projectId);
@@ -532,10 +540,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ message: "Following", followsCount: project.followsCount + 1 });
   });
 
-  app.delete("/api/projects/:id/follow", requireAuth, async (req, res) => {
+  app.delete("/api/projects/:id/follow", requireAuth, syncClerkUser, async (req, res) => {
     const projectId = parseInt(req.params.id as string);
     if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
-    const user = req.user!;
+    const user = req.dbUser!;
     const deleted = await storage.deleteFollow(user.id, projectId);
     if (!deleted) return res.status(400).json({ message: "Not following" });
     await storage.incrementFollowsCount(projectId, -1);
@@ -553,25 +561,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(commentList);
   });
 
-  app.post("/api/projects/:id/comments", requireAuth, async (req, res) => {
+  app.post("/api/projects/:id/comments", requireAuth, syncClerkUser, async (req, res) => {
     const projectId = parseInt(req.params.id as string);
     if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
     try {
       const { content } = createCommentSchema.parse(req.body);
       const project = await storage.getProject(projectId);
       if (!project) return res.status(404).json({ message: "Project not found" });
-      const comment = await storage.createComment(projectId, req.user!.id, content);
-      res.status(201).json({ ...comment, username: req.user!.username });
+      const user = req.dbUser!;
+      const comment = await storage.createComment(projectId, user.id, content);
+      res.status(201).json({ ...comment, username: user.username });
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       throw err;
     }
   });
 
-  app.delete("/api/comments/:id", requireAuth, async (req, res) => {
+  app.delete("/api/comments/:id", requireAuth, syncClerkUser, async (req, res) => {
     const id = parseInt(req.params.id as string);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid comment ID" });
-    const deleted = await storage.deleteComment(id, req.user!.id);
+    const deleted = await storage.deleteComment(id, req.dbUser!.id);
     if (!deleted) return res.status(403).json({ message: "Cannot delete this comment" });
     res.json({ message: "Comment deleted" });
   });
@@ -579,14 +588,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ==========================================
   // SOCIAL SHARES & CREDIT EARNING
   // ==========================================
-  app.post("/api/social-shares", requireAuth, async (req, res) => {
+  app.post("/api/social-shares", requireAuth, syncClerkUser, async (req, res) => {
     try {
       const input = submitSocialShareSchema.parse(req.body);
-      const user = req.user!;
+      const user = req.dbUser!;
       const project = await storage.getProject(input.projectId);
       if (!project) return res.status(404).json({ message: "Project not found" });
       if (project.status !== "active") return res.status(400).json({ message: "Can only share active projects" });
-      // Cannot earn credits by sharing your own projects
       if (project.ownerId === user.id) {
         return res.status(400).json({ message: "Cannot earn credits by sharing your own projects" });
       }
@@ -598,14 +606,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.get("/api/social-shares", requireAuth, async (req, res) => {
-    const shares = await storage.getSocialSharesByUser(req.user!.id);
+  app.get("/api/social-shares", requireAuth, syncClerkUser, async (req, res) => {
+    const shares = await storage.getSocialSharesByUser(req.dbUser!.id);
     res.json(shares);
   });
 
   // Balance endpoint: current listing balance + earned credit progress
-  app.get("/api/balance", requireAuth, async (req, res) => {
-    const user = req.user!;
+  app.get("/api/balance", requireAuth, syncClerkUser, async (req, res) => {
+    const user = req.dbUser!;
     const freshUser = await storage.getUser(user.id);
     if (!freshUser) return res.status(404).json({ message: "User not found" });
     const ledger = await storage.getCreditLedger(user.id);
@@ -624,31 +632,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       await verifySocialShares();
       res.json({ message: "Verification cycle completed" });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message || "Verification failed" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Verification failed";
+      res.status(500).json({ message });
     }
   });
 
   // ==========================================
   // NOTIFICATIONS
   // ==========================================
-  app.get("/api/notifications", requireAuth, async (req, res) => {
+  app.get("/api/notifications", requireAuth, syncClerkUser, async (req, res) => {
     const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
-    const notifs = await storage.getNotifications(req.user!.id, limit);
-    const unreadCount = await storage.getUnreadNotificationCount(req.user!.id);
+    const userId = req.dbUser!.id;
+    const notifs = await storage.getNotifications(userId, limit);
+    const unreadCount = await storage.getUnreadNotificationCount(userId);
     res.json({ notifications: notifs, unreadCount });
   });
 
-  app.post("/api/notifications/:id/read", requireAuth, async (req, res) => {
+  app.post("/api/notifications/:id/read", requireAuth, syncClerkUser, async (req, res) => {
     const id = parseInt(req.params.id as string);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid notification ID" });
-    const success = await storage.markNotificationRead(id, req.user!.id);
+    const success = await storage.markNotificationRead(id, req.dbUser!.id);
     if (!success) return res.status(404).json({ message: "Notification not found" });
     res.json({ message: "Marked as read" });
   });
 
-  app.post("/api/notifications/read-all", requireAuth, async (req, res) => {
-    const count = await storage.markAllNotificationsRead(req.user!.id);
+  app.post("/api/notifications/read-all", requireAuth, syncClerkUser, async (req, res) => {
+    const count = await storage.markAllNotificationsRead(req.dbUser!.id);
     res.json({ message: `Marked ${count} notifications as read`, count });
   });
 

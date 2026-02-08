@@ -1,5 +1,7 @@
-import { useUser, useAuth as useClerkAuth } from "@clerk/clerk-react";
+import { useCallback } from "react";
+import { useUser, useAuth as useClerkAuth, useClerk } from "@clerk/clerk-react";
 import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 
 export interface AuthUser {
   id: number;
@@ -16,6 +18,7 @@ export interface AuthUser {
 export function useAuth() {
   const { isSignedIn, isLoaded } = useClerkAuth();
   const { user: clerkUser } = useUser();
+  const clerk = useClerk();
 
   const { data: dbUser, isLoading: dbLoading } = useQuery<AuthUser | null>({
     queryKey: ["/api/auth/me"],
@@ -34,9 +37,15 @@ export function useAuth() {
     retry: false,
   });
 
+  const logout = useCallback(async () => {
+    await clerk.signOut();
+    queryClient.clear();
+  }, [clerk]);
+
   return {
     user: dbUser ?? null,
     isLoading: !isLoaded || (isSignedIn && dbLoading),
     isAuthenticated: !!isSignedIn && !!dbUser,
+    logout,
   };
 }
