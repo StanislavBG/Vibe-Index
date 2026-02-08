@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation, Link } from "wouter";
-import { SignedIn, SignedOut, UserButton } from "@clerk/clerk-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, type NotificationData } from "@/hooks/use-projects";
@@ -108,7 +107,7 @@ function NotificationBell() {
 
 export function Navbar() {
   const [location, navigate] = useLocation();
-  const { user } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const navLink = (href: string, label: string) => {
@@ -144,7 +143,7 @@ export function Navbar() {
 
           <div className="w-px h-5 bg-border" />
 
-          <SignedIn>
+          {isAuthenticated ? (
             <div className="flex items-center gap-2">
               <Link href="/dashboard">
                 <Button variant="ghost" size="sm" data-testid="link-dashboard">
@@ -155,11 +154,16 @@ export function Navbar() {
                 {(user?.freeListingsRemaining ?? 0) + (user?.paidListingCredits ?? 0)} credits
               </div>
               <NotificationBell />
-              <UserButton afterSignOutUrl="/" />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => logout()}
+                className="gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+              </Button>
             </div>
-          </SignedIn>
-
-          <SignedOut>
+          ) : (
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
@@ -178,7 +182,7 @@ export function Navbar() {
                 Sign up
               </Button>
             </div>
-          </SignedOut>
+          )}
         </div>
 
         <Button
@@ -203,17 +207,24 @@ export function Navbar() {
           <Link href="/subscribe" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
             Stay in the Loop
           </Link>
-          <SignedIn>
-            <div className="border-t border-border/50 pt-3">
-              <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
-                Dashboard
-              </Link>
-            </div>
-            <div className="pt-2">
-              <UserButton afterSignOutUrl="/" />
-            </div>
-          </SignedIn>
-          <SignedOut>
+          {isAuthenticated ? (
+            <>
+              <div className="border-t border-border/50 pt-3">
+                <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
+                  Dashboard
+                </Link>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { logout(); setMenuOpen(false); }}
+                className="w-full justify-start gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                Log out
+              </Button>
+            </>
+          ) : (
             <div className="flex gap-2 pt-2 border-t border-border/50">
               <Button
                 variant="outline"
@@ -231,7 +242,7 @@ export function Navbar() {
                 Sign up
               </Button>
             </div>
-          </SignedOut>
+          )}
         </div>
       )}
     </nav>
