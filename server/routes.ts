@@ -2,8 +2,9 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
-import { setupAuth, hashPassword, comparePasswords, requireAuth } from "./auth";
-import { registerUserSchema, loginUserSchema, submitProjectSchema, subscribeSchema } from "@shared/schema";
+import { setupAuth, requireAuth, syncClerkUser } from "./auth";
+import { getAuth } from "@clerk/express";
+import { submitProjectSchema, subscribeSchema } from "@shared/schema";
 import { processJob } from "./scraper";
 import crypto from "crypto";
 
@@ -38,53 +39,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ==========================================
   // AUTH ROUTES
   // ==========================================
-  app.post("/api/auth/register", async (req, res) => {
-    try {
-      const input = registerUserSchema.parse(req.body);
-      const existingUser = await storage.getUserByUsername(input.username);
-      if (existingUser) return res.status(400).json({ message: "Username already taken" });
-      const existingEmail = await storage.getUserByEmail(input.email);
-      if (existingEmail) return res.status(400).json({ message: "Email already registered" });
-      const hashedPassword = await hashPassword(input.password);
-      const user = await storage.createUser({ username: input.username, email: input.email, password: hashedPassword });
-      req.login(user, (err) => {
-        if (err) return res.status(500).json({ message: "Login failed after registration" });
-        const { password, ...safeUser } = user;
-        return res.status(201).json(safeUser);
-      });
-    } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
-      throw err;
-    }
-  });
-
-  app.post("/api/auth/login", (req, res, next) => {
-    try { loginUserSchema.parse(req.body); } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-    }
-    const passport = require("passport");
-    passport.authenticate("local", (err: any, user: any, info: any) => {
-      if (err) return next(err);
-      if (!user) return res.status(401).json({ message: info?.message || "Invalid credentials" });
-      req.login(user, (err: any) => {
-        if (err) return next(err);
-        const { password, ...safeUser } = user;
-        return res.json(safeUser);
-      });
-    })(req, res, next);
-  });
-
-  app.post("/api/auth/logout", (req, res) => {
-    req.logout((err) => {
-      if (err) return res.status(500).json({ message: "Logout failed" });
-      res.json({ message: "Logged out" });
+  app.get("/api/auth/me", syncClerkUser, async (req, res) => {
+    const user = req.dbUser!;
+    res.json({
+      id: user.id,
+      clerkId: user.clerkId,
+      username: user.username,
+      email: user.email,
+      freeListingsRemaining: user.freeListingsRemaining,
+      paidListingCredits: user.paidListingCredits,
+      likesRemaining: user.likesRemaining,
+      createdAt: user.createdAt,
     });
-  });
-
-  app.get("/api/auth/me", (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    const { password, ...safeUser } = req.user!;
-    res.json(safeUser);
   });
 
   // ==========================================
@@ -111,42 +77,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const cats = await storage.getProjectCategories(id);
     const job = await storage.getJobByProject(id);
     let liked = false;
-    if (req.isAuthenticated()) {
-      const like = await storage.getLike(req.user!.id, id);
-      liked = !!like;
+    const auth = getAuth(req);
+    if (auth?.userId) {
+      const dbUser = await storage.getUserByClerkId(auth.userId);
+      if (dbUser) {
+        const like = await storage.getLike(dbUser.id, id);
+        liked = !!like;
+      }
     }
     res.json({ ...project, categories: cats, liked, job: job || null });
   });
 
-  // Submit project: creates project + kicks off scraper agent
   app.post("/api/projects", async (req, res) => {
     try {
       const input = submitProjectSchema.parse(req.body);
       const fingerprint = req.ip || req.headers["x-forwarded-for"] as string || "unknown";
+      const auth = getAuth(req);
 
-      if (req.isAuthenticated()) {
-        const user = req.user!;
-        if (user.freeListingsRemaining <= 0 && user.paidListingCredits <= 0) {
+      if (auth?.userId) {
+        const dbUser = await storage.getUserByClerkId(auth.userId);
+        if (!dbUser) return res.status(401).json({ message: "User not found" });
+
+        if (dbUser.freeListingsRemaining <= 0 && dbUser.paidListingCredits <= 0) {
           return res.status(403).json({ message: "No listing credits remaining. Purchase more to continue." });
         }
         const project = await storage.createProject({
           url: input.url,
-          ownerId: user.id,
+          ownerId: dbUser.id,
           claimed: true,
           status: "pending",
         });
-        // Deduct credit
-        if (user.freeListingsRemaining > 0) {
-          await storage.updateUserCredits(user.id, { freeListingsRemaining: user.freeListingsRemaining - 1 });
+        if (dbUser.freeListingsRemaining > 0) {
+          await storage.updateUserCredits(dbUser.id, { freeListingsRemaining: dbUser.freeListingsRemaining - 1 });
         } else {
-          await storage.updateUserCredits(user.id, { paidListingCredits: user.paidListingCredits - 1 });
+          await storage.updateUserCredits(dbUser.id, { paidListingCredits: dbUser.paidListingCredits - 1 });
         }
-        // Create and start analysis job
         const job = await storage.createJob(project.id);
-        processJob(job.id).catch(console.error); // fire and forget
+        processJob(job.id).catch(console.error);
         return res.status(201).json({ project, job });
       } else {
-        // Anonymous submission
         const anonCount = await storage.getAnonymousSubmissionCount(fingerprint);
         if (anonCount >= 3) {
           return res.status(403).json({ message: "Anonymous submission limit reached. Create an account to submit more projects." });
@@ -169,29 +138,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.put("/api/projects/:id", requireAuth, async (req, res) => {
+  app.put("/api/projects/:id", requireAuth, syncClerkUser, async (req, res) => {
     const id = parseInt(req.params.id as string);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid project ID" });
     const project = await storage.getProject(id);
     if (!project) return res.status(404).json({ message: "Project not found" });
-    if (project.ownerId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
+    const user = req.dbUser!;
+    if (project.ownerId !== user.id) return res.status(403).json({ message: "Not authorized" });
     const { categoryIds, ...updates } = req.body;
     const updated = await storage.updateProject(id, updates);
     if (categoryIds && Array.isArray(categoryIds)) await storage.setProjectCategories(id, categoryIds);
-    const user = req.user!;
-    await storage.updateUserCredits(user.id, { likesRemaining: user.likesRemaining + 1 });
     const cats = await storage.getProjectCategories(id);
     res.json({ ...updated, categories: cats });
   });
 
-  app.delete("/api/projects/:id", requireAuth, async (req, res) => {
+  app.delete("/api/projects/:id", requireAuth, syncClerkUser, async (req, res) => {
     const id = parseInt(req.params.id as string);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid project ID" });
     const project = await storage.getProject(id);
     if (!project) return res.status(404).json({ message: "Project not found" });
-    if (project.ownerId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
+    const user = req.dbUser!;
+    if (project.ownerId !== user.id) return res.status(403).json({ message: "Not authorized" });
     await storage.deleteProject(id);
-    const user = req.user!;
     if (user.freeListingsRemaining < 3) {
       await storage.updateUserCredits(user.id, { freeListingsRemaining: user.freeListingsRemaining + 1 });
     } else {
@@ -200,9 +168,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ message: "Project deleted" });
   });
 
-  app.get("/api/my-projects", requireAuth, async (req, res) => {
-    const userProjects = await storage.getProjectsByOwner(req.user!.id);
-    // Include job status for each project
+  app.get("/api/my-projects", requireAuth, syncClerkUser, async (req, res) => {
+    const user = req.dbUser!;
+    const userProjects = await storage.getProjectsByOwner(user.id);
     const withJobs = await Promise.all(
       userProjects.map(async (p) => {
         const job = await storage.getJobByProject(p.id);
@@ -240,10 +208,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ==========================================
   // LIKES
   // ==========================================
-  app.post("/api/projects/:id/like", requireAuth, async (req, res) => {
+  app.post("/api/projects/:id/like", requireAuth, syncClerkUser, async (req, res) => {
     const projectId = parseInt(req.params.id as string);
     if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
-    const user = req.user!;
+    const user = req.dbUser!;
     if (user.likesRemaining <= 0) return res.status(403).json({ message: "No likes remaining. Purchase more to continue." });
     const existing = await storage.getLike(user.id, projectId);
     if (existing) return res.status(400).json({ message: "Already liked this project" });
@@ -255,10 +223,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ message: "Liked", likesCount: project.likesCount + 1 });
   });
 
-  app.delete("/api/projects/:id/like", requireAuth, async (req, res) => {
+  app.delete("/api/projects/:id/like", requireAuth, syncClerkUser, async (req, res) => {
     const projectId = parseInt(req.params.id as string);
     if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
-    const user = req.user!;
+    const user = req.dbUser!;
     const deleted = await storage.deleteLike(user.id, projectId);
     if (!deleted) return res.status(400).json({ message: "Not liked" });
     await storage.incrementLikesCount(projectId, -1);
@@ -278,7 +246,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const sub = await storage.subscribe(input.email, categoryId);
         results.push(sub);
       }
-      // Save newsletter preferences
       await storage.upsertNewsletterPreference(input.email, {
         frequency: input.frequency || "weekly",
         interests: input.interests ? JSON.stringify(input.interests) : undefined,
