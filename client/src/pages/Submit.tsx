@@ -25,7 +25,10 @@ export default function Submit() {
   const submitMutation = useSubmitProject();
   const { toast } = useToast();
 
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("url") || "";
+  });
   const [activeJob, setActiveJob] = useState<{ jobId: number; projectId: number } | null>(null);
   const [phase, setPhase] = useState<SubmitPhase>("form");
   const [draftData, setDraftData] = useState<DraftData | null>(null);
