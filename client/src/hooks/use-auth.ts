@@ -9,6 +9,7 @@ export interface AuthUser {
   freeListingsRemaining: number;
   paidListingCredits: number;
   likesRemaining: number;
+  earnedCredits: number;
   createdAt: string;
 }
 

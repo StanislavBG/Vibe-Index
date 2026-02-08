@@ -2,9 +2,11 @@ import { db } from "./db";
 import {
   users, projects, categories, projectCategories, likes,
   categorySubscriptions, anonymousSubmissions, jobs, newsletterPreferences,
+  comments, projectFollows, socialShares, creditLedger, notifications,
   type User, type InsertUser, type Project, type InsertProject,
   type Category, type InsertCategory, type Like, type CategorySubscription,
-  type Job, type NewsletterPreference,
+  type Job, type NewsletterPreference, type Comment, type ProjectFollow,
+  type SocialShare, type CreditLedgerEntry, type Notification,
 } from "@shared/schema";
 import { eq, and, ilike, or, sql, desc, asc, count } from "drizzle-orm";
 
@@ -61,6 +63,35 @@ export interface IStorage {
   // Anonymous Submissions
   getAnonymousSubmissionCount(fingerprint: string): Promise<number>;
   createAnonymousSubmission(fingerprint: string, projectId: number): Promise<void>;
+
+  // Comments
+  getComments(projectId: number): Promise<(Comment & { username: string })[]>;
+  createComment(projectId: number, userId: number, content: string): Promise<Comment>;
+  deleteComment(id: number, userId: number): Promise<boolean>;
+
+  // Project Follows
+  getFollow(userId: number, projectId: number): Promise<ProjectFollow | undefined>;
+  createFollow(userId: number, projectId: number): Promise<ProjectFollow>;
+  deleteFollow(userId: number, projectId: number): Promise<boolean>;
+  incrementFollowsCount(projectId: number, delta: number): Promise<void>;
+
+  // Social Shares & Credits
+  createSocialShare(userId: number, projectId: number, platform: string, proofUrl: string): Promise<SocialShare>;
+  getSocialSharesByUser(userId: number): Promise<SocialShare[]>;
+  getPendingSocialShares(): Promise<SocialShare[]>;
+  updateSocialShare(id: number, updates: Partial<Pick<SocialShare, "status" | "verifiedAt">>): Promise<SocialShare | undefined>;
+  addCreditLedgerEntry(userId: number, amount: number, type: string, description: string, sourceId?: number, sourceType?: string): Promise<CreditLedgerEntry>;
+  getCreditLedger(userId: number): Promise<CreditLedgerEntry[]>;
+  getEarnedCredits(userId: number): Promise<number>;
+  updateEarnedCredits(userId: number, amount: number): Promise<void>;
+  convertEarnedCredits(userId: number): Promise<number>;
+
+  // Notifications
+  createNotification(userId: number, type: string, title: string, message: string, linkUrl?: string): Promise<Notification>;
+  getNotifications(userId: number, limit?: number): Promise<Notification[]>;
+  getUnreadNotificationCount(userId: number): Promise<number>;
+  markNotificationRead(id: number, userId: number): Promise<boolean>;
+  markAllNotificationsRead(userId: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -123,36 +154,82 @@ export class DatabaseStorage implements IStorage {
     // Only show active projects in public listing
     conditions.push(eq(projects.status, "active"));
 
-    if (search) {
-      conditions.push(
-        or(
-          ilike(projects.name, `%${search}%`),
-          ilike(projects.shortDescription, `%${search}%`),
-          ilike(projects.tags, `%${search}%`)
-        )
-      );
-    }
-
     if (pricingModel) {
       conditions.push(eq(projects.pricingModel, pricingModel));
     }
 
-    let query = db.select().from(projects);
-    let countQuery = db.select({ value: count() }).from(projects);
+    // Semantic search: use PostgreSQL full-text search with ts_vector/ts_query
+    // plus ILIKE fallback for partial matches
+    const hasSearch = search && search.trim().length > 0;
+    const sanitizedSearch = hasSearch ? search.trim().replace(/[^\w\s-]/g, " ").trim() : "";
 
-    if (categoryId) {
-      query = db.select().from(projects)
-        .innerJoin(projectCategories, eq(projects.id, projectCategories.projectId))
-        .where(and(eq(projectCategories.categoryId, categoryId), ...conditions)) as any;
-      countQuery = db.select({ value: count() }).from(projects)
-        .innerJoin(projectCategories, eq(projects.id, projectCategories.projectId))
-        .where(and(eq(projectCategories.categoryId, categoryId), ...conditions)) as any;
-    } else if (conditions.length > 0) {
-      query = query.where(and(...conditions)) as any;
-      countQuery = countQuery.where(and(...conditions)) as any;
+    if (hasSearch) {
+      // Build a tsquery from the search terms (OR between words for broader matches)
+      const words = sanitizedSearch.split(/\s+/).filter(Boolean);
+      const tsQueryStr = words.map(w => `${w}:*`).join(" | ");
+
+      // Full-text match OR substring fallback
+      conditions.push(
+        or(
+          sql`(
+            to_tsvector('english', coalesce(${projects.name}, '') || ' ' || coalesce(${projects.shortDescription}, '') || ' ' || coalesce(${projects.longDescription}, '') || ' ' || coalesce(${projects.tags}, ''))
+            @@ to_tsquery('english', ${tsQueryStr})
+          )`,
+          ilike(projects.name, `%${sanitizedSearch}%`),
+          ilike(projects.shortDescription, `%${sanitizedSearch}%`),
+          ilike(projects.longDescription, `%${sanitizedSearch}%`),
+          ilike(projects.tags, `%${sanitizedSearch}%`)
+        )
+      );
     }
 
-    const orderBy = sortBy === "popular" ? desc(projects.likesCount) : desc(projects.createdAt);
+    // Relevance ranking expression
+    const relevanceExpr = hasSearch
+      ? sql`(
+          ts_rank_cd(
+            to_tsvector('english', coalesce(${projects.name}, '') || ' ' || coalesce(${projects.shortDescription}, '') || ' ' || coalesce(${projects.longDescription}, '') || ' ' || coalesce(${projects.tags}, '')),
+            to_tsquery('english', ${sanitizedSearch.split(/\s+/).filter(Boolean).map(w => `${w}:*`).join(" | ")})
+          )
+          + CASE WHEN lower(coalesce(${projects.name}, '')) LIKE ${`%${sanitizedSearch.toLowerCase()}%`} THEN 2.0 ELSE 0 END
+          + CASE WHEN lower(coalesce(${projects.tags}, '')) LIKE ${`%${sanitizedSearch.toLowerCase()}%`} THEN 1.0 ELSE 0 END
+        )`
+      : sql`0`;
+
+    let query;
+    let countQuery;
+
+    if (categoryId) {
+      const baseWhere = and(eq(projectCategories.categoryId, categoryId), ...conditions);
+      query = db.select({
+        projects: projects,
+        relevance: relevanceExpr,
+      }).from(projects)
+        .innerJoin(projectCategories, eq(projects.id, projectCategories.projectId))
+        .where(baseWhere);
+      countQuery = db.select({ value: count() }).from(projects)
+        .innerJoin(projectCategories, eq(projects.id, projectCategories.projectId))
+        .where(baseWhere);
+    } else {
+      const baseWhere = conditions.length > 0 ? and(...conditions) : undefined;
+      query = db.select({
+        projects: projects,
+        relevance: relevanceExpr,
+      }).from(projects)
+        .where(baseWhere);
+      countQuery = db.select({ value: count() }).from(projects)
+        .where(baseWhere);
+    }
+
+    // Sort: relevance when searching, otherwise newest/popular
+    let orderBy;
+    if (hasSearch && (sortBy === "relevance" || sortBy === "newest")) {
+      orderBy = sql`${relevanceExpr} DESC`;
+    } else if (sortBy === "popular") {
+      orderBy = desc(projects.likesCount);
+    } else {
+      orderBy = desc(projects.createdAt);
+    }
+
     const rows = await (query as any).orderBy(orderBy).limit(limit).offset(offset);
     const [totalRow] = await countQuery;
 
@@ -346,6 +423,166 @@ export class DatabaseStorage implements IStorage {
 
   async createAnonymousSubmission(fingerprint: string, projectId: number): Promise<void> {
     await db.insert(anonymousSubmissions).values({ fingerprint, projectId });
+  }
+
+  // === COMMENTS ===
+  async getComments(projectId: number): Promise<(Comment & { username: string })[]> {
+    const rows = await db.select({
+      comment: comments,
+      username: users.username,
+    })
+      .from(comments)
+      .innerJoin(users, eq(comments.userId, users.id))
+      .where(eq(comments.projectId, projectId))
+      .orderBy(desc(comments.createdAt));
+    return rows.map(r => ({ ...r.comment, username: r.username }));
+  }
+
+  async createComment(projectId: number, userId: number, content: string): Promise<Comment> {
+    const [comment] = await db.insert(comments).values({ projectId, userId, content }).returning();
+    await db.update(projects).set({
+      commentsCount: sql`${projects.commentsCount} + 1`,
+    }).where(eq(projects.id, projectId));
+    return comment;
+  }
+
+  async deleteComment(id: number, userId: number): Promise<boolean> {
+    const [comment] = await db.select().from(comments).where(eq(comments.id, id));
+    if (!comment || comment.userId !== userId) return false;
+    await db.delete(comments).where(eq(comments.id, id));
+    await db.update(projects).set({
+      commentsCount: sql`GREATEST(${projects.commentsCount} - 1, 0)`,
+    }).where(eq(projects.id, comment.projectId));
+    return true;
+  }
+
+  // === PROJECT FOLLOWS ===
+  async getFollow(userId: number, projectId: number): Promise<ProjectFollow | undefined> {
+    const [follow] = await db.select().from(projectFollows)
+      .where(and(eq(projectFollows.userId, userId), eq(projectFollows.projectId, projectId)));
+    return follow;
+  }
+
+  async createFollow(userId: number, projectId: number): Promise<ProjectFollow> {
+    const [follow] = await db.insert(projectFollows).values({ userId, projectId }).returning();
+    return follow;
+  }
+
+  async deleteFollow(userId: number, projectId: number): Promise<boolean> {
+    const result = await db.delete(projectFollows)
+      .where(and(eq(projectFollows.userId, userId), eq(projectFollows.projectId, projectId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async incrementFollowsCount(projectId: number, delta: number): Promise<void> {
+    await db.update(projects).set({
+      followsCount: sql`${projects.followsCount} + ${delta}`,
+    }).where(eq(projects.id, projectId));
+  }
+
+  // === SOCIAL SHARES & CREDITS ===
+  async createSocialShare(userId: number, projectId: number, platform: string, proofUrl: string): Promise<SocialShare> {
+    const verifyAfter = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+    const [share] = await db.insert(socialShares).values({
+      userId, projectId, platform, proofUrl, verifyAfter,
+      status: "pending", creditAmount: 20,
+    }).returning();
+    return share;
+  }
+
+  async getSocialSharesByUser(userId: number): Promise<SocialShare[]> {
+    return db.select().from(socialShares)
+      .where(eq(socialShares.userId, userId))
+      .orderBy(desc(socialShares.createdAt));
+  }
+
+  async getPendingSocialShares(): Promise<SocialShare[]> {
+    return db.select().from(socialShares)
+      .where(and(
+        eq(socialShares.status, "pending"),
+        sql`${socialShares.verifyAfter} <= NOW()`
+      ))
+      .orderBy(asc(socialShares.createdAt));
+  }
+
+  async updateSocialShare(id: number, updates: Partial<Pick<SocialShare, "status" | "verifiedAt">>): Promise<SocialShare | undefined> {
+    const [share] = await db.update(socialShares).set(updates).where(eq(socialShares.id, id)).returning();
+    return share;
+  }
+
+  async addCreditLedgerEntry(userId: number, amount: number, type: string, description: string, sourceId?: number, sourceType?: string): Promise<CreditLedgerEntry> {
+    const [entry] = await db.insert(creditLedger).values({
+      userId, amount, type, description, sourceId, sourceType,
+    }).returning();
+    return entry;
+  }
+
+  async getCreditLedger(userId: number): Promise<CreditLedgerEntry[]> {
+    return db.select().from(creditLedger)
+      .where(eq(creditLedger.userId, userId))
+      .orderBy(desc(creditLedger.createdAt));
+  }
+
+  async getEarnedCredits(userId: number): Promise<number> {
+    const [user] = await db.select({ earnedCredits: users.earnedCredits }).from(users).where(eq(users.id, userId));
+    return user?.earnedCredits ?? 0;
+  }
+
+  async updateEarnedCredits(userId: number, amount: number): Promise<void> {
+    await db.update(users).set({
+      earnedCredits: sql`${users.earnedCredits} + ${amount}`,
+    }).where(eq(users.id, userId));
+  }
+
+  // Convert earned credits to listing credits when they reach 100
+  async convertEarnedCredits(userId: number): Promise<number> {
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) return 0;
+    const fullCredits = Math.floor(user.earnedCredits / 100);
+    if (fullCredits > 0) {
+      const remainder = user.earnedCredits % 100;
+      await db.update(users).set({
+        earnedCredits: remainder,
+        paidListingCredits: sql`${users.paidListingCredits} + ${fullCredits}`,
+      }).where(eq(users.id, userId));
+    }
+    return fullCredits;
+  }
+
+  // === NOTIFICATIONS ===
+  async createNotification(userId: number, type: string, title: string, message: string, linkUrl?: string): Promise<Notification> {
+    const [notif] = await db.insert(notifications).values({
+      userId, type, title, message, linkUrl,
+    }).returning();
+    return notif;
+  }
+
+  async getNotifications(userId: number, limit = 20): Promise<Notification[]> {
+    return db.select().from(notifications)
+      .where(eq(notifications.userId, userId))
+      .orderBy(desc(notifications.createdAt))
+      .limit(limit);
+  }
+
+  async getUnreadNotificationCount(userId: number): Promise<number> {
+    const [result] = await db.select({ value: count() }).from(notifications)
+      .where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
+    return result.value;
+  }
+
+  async markNotificationRead(id: number, userId: number): Promise<boolean> {
+    const result = await db.update(notifications).set({ read: true })
+      .where(and(eq(notifications.id, id), eq(notifications.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async markAllNotificationsRead(userId: number): Promise<number> {
+    const result = await db.update(notifications).set({ read: true })
+      .where(and(eq(notifications.userId, userId), eq(notifications.read, false)))
+      .returning();
+    return result.length;
   }
 }
 

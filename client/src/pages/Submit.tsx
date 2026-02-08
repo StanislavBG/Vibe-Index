@@ -1,16 +1,23 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useCallback } from "react";
+import { useLocation, Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link2, ArrowRight, Info, FileText, UserPlus } from "lucide-react";
+import { Link2, ArrowRight, Info, FileText, UserPlus, ExternalLink, Loader2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Navbar } from "@/components/Navbar";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
 import { JobProgress } from "@/components/JobProgress";
-import { useSubmitProject } from "@/hooks/use-projects";
+import { DraftEditor } from "@/components/DraftEditor";
+import { useSubmitProject, type Project, type Job, type DraftData } from "@/hooks/use-projects";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
+
+type ProjectWithJob = Project & { job: Job | null };
+
+type SubmitPhase = "form" | "analyzing" | "review";
 
 export default function Submit() {
   const [, navigate] = useLocation();
@@ -20,6 +27,20 @@ export default function Submit() {
 
   const [url, setUrl] = useState("");
   const [activeJob, setActiveJob] = useState<{ jobId: number; projectId: number } | null>(null);
+  const [phase, setPhase] = useState<SubmitPhase>("form");
+  const [draftData, setDraftData] = useState<DraftData | null>(null);
+
+  // Fetch user's existing projects when logged in
+  const { data: myProjects } = useQuery<ProjectWithJob[]>({
+    queryKey: ["/api/my-projects"],
+    enabled: isAuthenticated,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      const hasRunning = data.some((p) => p.job && (p.job.status === "queued" || p.job.status === "running"));
+      return hasRunning ? 3000 : false;
+    },
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,6 +54,7 @@ export default function Submit() {
         localStorage.setItem(`vibe-token-${result.project.id}`, result.anonymousToken);
       }
       setActiveJob({ jobId: result.job.id, projectId: result.project.id });
+      setPhase("analyzing");
     } catch (err: any) {
       const message = err.message || "Submission failed";
       if (message.includes("Anonymous submission limit")) {
@@ -53,9 +75,23 @@ export default function Submit() {
     }
   };
 
+  // Called by JobProgress when scraper finishes and draft is ready
+  const handleDraftReady = useCallback((jobResult: string) => {
+    try {
+      const parsed = JSON.parse(jobResult) as DraftData;
+      setDraftData(parsed);
+      setPhase("review");
+    } catch {
+      toast({ title: "Error", description: "Could not parse draft data", variant: "destructive" });
+    }
+  }, [toast]);
+
   const creditsRemaining = isAuthenticated
     ? (user?.freeListingsRemaining ?? 0) + (user?.paidListingCredits ?? 0)
     : null;
+
+  const activeProjects = myProjects?.filter((p) => p.status === "active") ?? [];
+  const pendingProjects = myProjects?.filter((p) => p.status === "pending") ?? [];
 
   return (
     <div className="min-h-screen w-full relative">
@@ -70,17 +106,19 @@ export default function Submit() {
         >
           <div className="text-center space-y-2">
             <h1 className="text-3xl font-bold tracking-tight">
-              Submit a Project
+              {phase === "review" ? "Review Your Listing" : "Submit a Project"}
             </h1>
             <p className="text-sm text-muted-foreground">
-              Paste a link. Our agent will analyze and build the listing for you.
+              {phase === "review"
+                ? "Edit with typing or voice. Approve when it looks right."
+                : "Paste a link. Our agent will analyze and build a draft for you to review."}
             </p>
-            {isAuthenticated && (
+            {phase === "form" && isAuthenticated && (
               <p className="text-xs text-muted-foreground">
                 {creditsRemaining} listing {creditsRemaining === 1 ? "credit" : "credits"} remaining
               </p>
             )}
-            {!isAuthenticated && (
+            {phase === "form" && !isAuthenticated && (
               <p className="text-xs text-muted-foreground">
                 Up to 3 projects without an account
               </p>
@@ -88,7 +126,8 @@ export default function Submit() {
           </div>
 
           <AnimatePresence mode="wait">
-            {!activeJob ? (
+            {/* Phase 1: URL input form */}
+            {phase === "form" && (
               <motion.div
                 key="form"
                 initial={{ opacity: 0 }}
@@ -113,7 +152,7 @@ export default function Submit() {
                         />
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        We'll visit your site, extract details, and generate a listing automatically.
+                        We'll visit your site, extract details, and generate a draft for you to review.
                       </p>
                     </div>
 
@@ -128,6 +167,73 @@ export default function Submit() {
                     </Button>
                   </form>
                 </Card>
+
+                {/* Your projects section for logged-in users */}
+                {isAuthenticated && myProjects && myProjects.length > 0 && (
+                  <Card className="glass-card p-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold text-sm">Your Projects</h3>
+                      <Link href="/dashboard" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                        Manage all
+                      </Link>
+                    </div>
+
+                    <div className="space-y-2">
+                      {pendingProjects.map((project) => (
+                        <div key={project.id} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium truncate">
+                                {project.name || new URL(project.url).hostname.replace("www.", "")}
+                              </span>
+                              <Badge variant="outline" className="text-[10px] rounded-md gap-1 animate-pulse flex-shrink-0">
+                                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                {project.job?.step === "review" ? "Needs review" :
+                                 project.job?.step === "fetching" ? "Fetching" :
+                                 project.job?.step === "analyzing" ? "Analyzing" :
+                                 project.job?.step === "categorizing" ? "Categorizing" :
+                                 "Processing"}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+
+                      {activeProjects.slice(0, 5).map((project) => (
+                        <div key={project.id} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium truncate">
+                                {project.name || new URL(project.url).hostname.replace("www.", "")}
+                              </span>
+                              <Badge variant="secondary" className="text-[10px] rounded-md gap-1 flex-shrink-0">
+                                <Check className="w-2.5 h-2.5" />
+                                Live
+                              </Badge>
+                              <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                                {project.likesCount} likes
+                              </span>
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs px-2"
+                            onClick={() => navigate(`/project/${project.id}`)}
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+
+                      {activeProjects.length > 5 && (
+                        <Link href="/dashboard" className="block text-xs text-muted-foreground hover:text-foreground text-center pt-1 transition-colors">
+                          +{activeProjects.length - 5} more projects
+                        </Link>
+                      )}
+                    </div>
+                  </Card>
+                )}
 
                 {/* Ownership messaging for anonymous users */}
                 {!isAuthenticated && (
@@ -187,16 +293,22 @@ export default function Submit() {
                   </div>
                 </Card>
               </motion.div>
-            ) : (
+            )}
+
+            {/* Phase 2: Agent analyzing */}
+            {phase === "analyzing" && activeJob && (
               <motion.div
-                key="progress"
+                key="analyzing"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
               >
                 <JobProgress
                   jobId={activeJob.jobId}
                   projectId={activeJob.projectId}
+                  onDraftReady={handleDraftReady}
                   onClose={() => {
+                    setPhase("form");
                     setActiveJob(null);
                     setUrl("");
                     toast({
@@ -208,20 +320,21 @@ export default function Submit() {
                     }
                   }}
                 />
+              </motion.div>
+            )}
 
-                <div className="mt-4 text-center">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setActiveJob(null);
-                      setUrl("");
-                    }}
-                    className="text-xs text-muted-foreground"
-                  >
-                    Submit another project
-                  </Button>
-                </div>
+            {/* Phase 3: Draft review with typing + voice editing */}
+            {phase === "review" && activeJob && draftData && (
+              <motion.div
+                key="review"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <DraftEditor
+                  jobId={activeJob.jobId}
+                  projectId={activeJob.projectId}
+                  initialDraft={draftData}
+                />
               </motion.div>
             )}
           </AnimatePresence>

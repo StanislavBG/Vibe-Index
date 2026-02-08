@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, Check, X, Globe, Search, Tag, ArrowRight } from "lucide-react";
+import { Loader2, Check, X, Globe, Search, Tag, Pencil, ArrowRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useJob } from "@/hooks/use-projects";
@@ -10,31 +10,42 @@ const STEPS = [
   { key: "fetching", label: "Fetching website", icon: Globe },
   { key: "analyzing", label: "Analyzing content", icon: Search },
   { key: "categorizing", label: "Assigning categories", icon: Tag },
-  { key: "done", label: "Page generated", icon: Check },
+  { key: "review", label: "Ready for review", icon: Pencil },
 ];
 
 export function JobProgress({
   jobId,
   projectId,
   onClose,
+  onDraftReady,
 }: {
   jobId: number;
   projectId: number;
   onClose?: () => void;
+  onDraftReady?: (jobResult: string) => void;
 }) {
   const [, navigate] = useLocation();
   const { data: job } = useJob(jobId);
 
   const currentStep = job?.step || "waiting";
+  const isReview = job?.status === "review";
   const isCompleted = job?.status === "completed";
   const isFailed = job?.status === "failed";
-  const isRunning = !isCompleted && !isFailed;
+  const isRunning = !isCompleted && !isFailed && !isReview;
 
+  // When draft is ready, notify parent
+  useEffect(() => {
+    if (isReview && job?.result && onDraftReady) {
+      onDraftReady(job.result);
+    }
+  }, [isReview, job?.result, onDraftReady]);
+
+  // If already completed (approved), redirect
   useEffect(() => {
     if (isCompleted) {
       const timer = setTimeout(() => {
         navigate(`/project/${projectId}`);
-      }, 2000);
+      }, 1500);
       return () => clearTimeout(timer);
     }
   }, [isCompleted, projectId, navigate]);
@@ -45,14 +56,19 @@ export function JobProgress({
     <Card className="glass-card p-6 space-y-5">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-sm">
-          {isCompleted
-            ? "Analysis complete"
-            : isFailed
-              ? "Analysis failed"
-              : "Analyzing your project..."}
+          {isReview
+            ? "Draft ready for your review"
+            : isCompleted
+              ? "Published"
+              : isFailed
+                ? "Analysis failed"
+                : "Analyzing your project..."}
         </h3>
         {isRunning && (
           <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        )}
+        {isReview && (
+          <Pencil className="w-4 h-4 text-muted-foreground" />
         )}
       </div>
 
@@ -61,7 +77,6 @@ export function JobProgress({
           const StepIcon = step.icon;
           const isActive = step.key === currentStep;
           const isDone = stepIndex > i || isCompleted;
-          const isPending = stepIndex < i && !isCompleted;
 
           return (
             <motion.div
@@ -88,7 +103,7 @@ export function JobProgress({
               >
                 {isDone ? (
                   <Check className="w-3.5 h-3.5" />
-                ) : isActive ? (
+                ) : isActive && isRunning ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <StepIcon className="w-3.5 h-3.5" />

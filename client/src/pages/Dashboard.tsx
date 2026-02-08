@@ -1,16 +1,18 @@
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Plus, ExternalLink, Trash2, Heart, CreditCard, Loader2, Check, AlertCircle } from "lucide-react";
+import { Plus, ExternalLink, Trash2, Heart, CreditCard, Loader2, Check, AlertCircle, Pencil, Share2, Trophy, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Navbar } from "@/components/Navbar";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { type Project, type Job } from "@/hooks/use-projects";
+import { type Project, type Job, useBalance, useSocialShares, useSubmitSocialShare } from "@/hooks/use-projects";
+import { useState } from "react";
 
 type ProjectWithJob = Project & { job: Job | null };
 
@@ -35,6 +37,16 @@ function JobStatusBadge({ job }: { job: Job | null }) {
     );
   }
 
+  // Draft ready for review
+  if (job.status === "review") {
+    return (
+      <Badge variant="outline" className="text-xs rounded-md gap-1 border-foreground/40">
+        <Pencil className="w-3 h-3" />
+        Needs review
+      </Badge>
+    );
+  }
+
   // queued or running
   return (
     <Badge variant="outline" className="text-xs rounded-md gap-1 animate-pulse">
@@ -47,10 +59,44 @@ function JobStatusBadge({ job }: { job: Job | null }) {
   );
 }
 
+const PLATFORMS = [
+  { value: "twitter", label: "Twitter / X" },
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "reddit", label: "Reddit" },
+  { value: "mastodon", label: "Mastodon" },
+  { value: "facebook", label: "Facebook" },
+  { value: "other", label: "Other" },
+];
+
 export default function Dashboard() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
+  const { data: balance } = useBalance();
+  const { data: socialSharesList } = useSocialShares();
+  const submitShare = useSubmitSocialShare();
+
+  const [shareForm, setShareForm] = useState({ projectId: "", platform: "twitter", proofUrl: "" });
+  const [showShareForm, setShowShareForm] = useState(false);
+
+  const handleSubmitShare = async () => {
+    if (!shareForm.projectId || !shareForm.proofUrl) {
+      toast({ title: "Missing fields", description: "Project ID and proof URL are required.", variant: "destructive" });
+      return;
+    }
+    try {
+      await submitShare.mutateAsync({
+        projectId: parseInt(shareForm.projectId),
+        platform: shareForm.platform,
+        proofUrl: shareForm.proofUrl,
+      });
+      toast({ title: "Share submitted", description: "We'll verify your post in 24 hours. Keep it live!" });
+      setShareForm({ projectId: "", platform: "twitter", proofUrl: "" });
+      setShowShareForm(false);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to submit share", variant: "destructive" });
+    }
+  };
 
   const { data: myProjects, isLoading } = useQuery<ProjectWithJob[]>({
     queryKey: ["/api/my-projects"],
@@ -117,14 +163,32 @@ export default function Dashboard() {
           </div>
 
           {/* Credits Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Card className="glass-card p-6">
               <div className="text-sm text-muted-foreground mb-1">Listing Credits</div>
               <div className="text-3xl font-bold">
-                {(user?.freeListingsRemaining ?? 0) + (user?.paidListingCredits ?? 0)}
+                {balance?.totalListingCredits ?? ((user?.freeListingsRemaining ?? 0) + (user?.paidListingCredits ?? 0))}
               </div>
               <div className="text-xs text-muted-foreground mt-1">
-                {user?.freeListingsRemaining ?? 0} free + {user?.paidListingCredits ?? 0} paid
+                {balance?.freeListingsRemaining ?? user?.freeListingsRemaining ?? 0} free + {balance?.paidListingCredits ?? user?.paidListingCredits ?? 0} earned/paid
+              </div>
+            </Card>
+            <Card className="glass-card p-6">
+              <div className="text-sm text-muted-foreground mb-1">Credit Progress</div>
+              <div className="text-3xl font-bold flex items-center gap-2">
+                <Trophy className="w-6 h-6 text-muted-foreground" />
+                {balance?.earnedCredits ?? user?.earnedCredits ?? 0}%
+              </div>
+              <div className="mt-2">
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-foreground rounded-full transition-all"
+                    style={{ width: `${Math.min(balance?.earnedCredits ?? 0, 100)}%` }}
+                  />
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {100 - (balance?.earnedCredits ?? 0)} more to earn a listing
+                </div>
               </div>
             </Card>
             <Card className="glass-card p-6">
@@ -146,18 +210,104 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          {/* Buy Credits CTA */}
-          <Card className="glass-card p-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <CreditCard className="w-5 h-5 text-muted-foreground" />
-              <div>
-                <div className="font-bold text-sm">Need more credits?</div>
-                <div className="text-xs text-muted-foreground">$1 per additional listing or like credit (Stripe integration coming soon)</div>
+          {/* Earn Credits Section */}
+          <Card className="glass-card p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <Share2 className="w-5 h-5 text-muted-foreground" />
+                <div>
+                  <div className="font-bold text-sm">Earn Listing Credits</div>
+                  <div className="text-xs text-muted-foreground">Share other users' projects on social media. Each verified share earns 20% toward a new listing credit.</div>
+                </div>
               </div>
+              <Button
+                variant={showShareForm ? "secondary" : "outline"}
+                size="sm"
+                onClick={() => setShowShareForm(!showShareForm)}
+              >
+                {showShareForm ? "Cancel" : "Submit Proof"}
+              </Button>
             </div>
-            <Button variant="outline" size="sm" className="rounded-lg" disabled>
-              Coming Soon
-            </Button>
+
+            {showShareForm && (
+              <div className="border-t border-border pt-4 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Project ID</label>
+                    <Input
+                      placeholder="e.g. 42"
+                      value={shareForm.projectId}
+                      onChange={(e) => setShareForm(prev => ({ ...prev, projectId: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Platform</label>
+                    <select
+                      value={shareForm.platform}
+                      onChange={(e) => setShareForm(prev => ({ ...prev, platform: e.target.value }))}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {PLATFORMS.map(p => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Proof URL</label>
+                    <Input
+                      placeholder="https://twitter.com/you/status/..."
+                      value={shareForm.proofUrl}
+                      onChange={(e) => setShareForm(prev => ({ ...prev, proofUrl: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    Your post must stay live for 24 hours. We'll verify and credit your account automatically.
+                  </p>
+                  <Button size="sm" onClick={handleSubmitShare} disabled={submitShare.isPending}>
+                    {submitShare.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                    Submit
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Recent shares */}
+            {socialSharesList && socialSharesList.length > 0 && (
+              <div className="border-t border-border pt-4 mt-4 space-y-2">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Recent Shares</h3>
+                {socialSharesList.slice(0, 5).map((share) => (
+                  <div key={share.id} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-xs rounded-md">{share.platform}</Badge>
+                      <span className="text-muted-foreground text-xs truncate max-w-[200px]">{share.proofUrl}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">+{share.creditAmount}%</span>
+                      {share.status === "pending" && (
+                        <Badge variant="outline" className="text-xs rounded-md gap-1">
+                          <Clock className="w-3 h-3" />
+                          Pending
+                        </Badge>
+                      )}
+                      {share.status === "verified" && (
+                        <Badge variant="secondary" className="text-xs rounded-md gap-1">
+                          <Check className="w-3 h-3" />
+                          Verified
+                        </Badge>
+                      )}
+                      {(share.status === "expired" || share.status === "rejected") && (
+                        <Badge variant="destructive" className="text-xs rounded-md gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          {share.status === "expired" ? "Expired" : "Rejected"}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
 
           {/* Projects List */}

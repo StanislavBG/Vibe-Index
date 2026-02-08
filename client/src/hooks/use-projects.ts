@@ -36,13 +36,53 @@ export interface Project {
   imageUrl: string | null;
   ownerId: number | null;
   likesCount: number;
+  followsCount: number;
+  commentsCount: number;
   status: string;
   claimed: boolean;
   createdAt: string;
   updatedAt: string;
   categories?: Category[];
   liked?: boolean;
+  followed?: boolean;
   job?: Job | null;
+}
+
+export interface CommentData {
+  id: number;
+  projectId: number;
+  userId: number;
+  content: string;
+  username: string;
+  createdAt: string;
+}
+
+export interface SocialShareData {
+  id: number;
+  userId: number;
+  projectId: number;
+  platform: string;
+  proofUrl: string;
+  status: string;
+  creditAmount: number;
+  verifyAfter: string;
+  verifiedAt: string | null;
+  createdAt: string;
+}
+
+export interface BalanceData {
+  freeListingsRemaining: number;
+  paidListingCredits: number;
+  earnedCredits: number;
+  earnedCreditsNeeded: number;
+  totalListingCredits: number;
+  ledger: Array<{
+    id: number;
+    amount: number;
+    type: string;
+    description: string;
+    createdAt: string;
+  }>;
 }
 
 export function useProjects(opts: {
@@ -77,6 +117,20 @@ export function useCategories() {
   return useQuery<Category[]>({ queryKey: ["/api/categories"], staleTime: 5 * 60 * 1000 });
 }
 
+// Draft shape returned by scraper
+export interface DraftData {
+  name: string;
+  shortDescription: string;
+  longDescription: string;
+  pricingModel: string;
+  pricingDetails: string | null;
+  tags: string[];
+  suggestedCategories: string[];
+  demoUrl: string | null;
+  docsUrl: string | null;
+  repoUrl: string | null;
+}
+
 export function useJob(jobId: number | null) {
   return useQuery<Job>({
     queryKey: [`/api/jobs/${jobId}`],
@@ -84,10 +138,74 @@ export function useJob(jobId: number | null) {
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return 1000;
-      if (data.status === "completed" || data.status === "failed") return false;
+      // Stop polling when in review, completed, or failed
+      if (data.status === "completed" || data.status === "failed" || data.status === "review") return false;
       return 1500;
     },
     staleTime: 0,
+  });
+}
+
+// Update draft fields directly (typing edits)
+export function useUpdateDraft() {
+  return useMutation({
+    mutationFn: async ({ jobId, updates }: { jobId: number; updates: Partial<DraftData> }) => {
+      const res = await apiRequest("PATCH", `/api/jobs/${jobId}/draft`, updates);
+      return res.json() as Promise<DraftData>;
+    },
+    onSuccess: (_, { jobId }) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/jobs/${jobId}`] });
+    },
+  });
+}
+
+// Refine draft with text feedback
+export function useRefineDraft() {
+  return useMutation({
+    mutationFn: async ({ jobId, feedback }: { jobId: number; feedback: string }) => {
+      const res = await apiRequest("POST", `/api/jobs/${jobId}/refine`, { feedback });
+      return res.json() as Promise<DraftData>;
+    },
+    onSuccess: (_, { jobId }) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/jobs/${jobId}`] });
+    },
+  });
+}
+
+// Voice feedback: upload audio → transcribe → refine draft
+export function useVoiceRefine() {
+  return useMutation({
+    mutationFn: async ({ jobId, audioBlob }: { jobId: number; audioBlob: Blob }) => {
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "voice.webm");
+      const res = await fetch(`/api/jobs/${jobId}/voice`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Voice processing failed" }));
+        throw new Error(err.message);
+      }
+      return res.json() as Promise<{ transcript: string; draft: DraftData }>;
+    },
+    onSuccess: (_, { jobId }) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/jobs/${jobId}`] });
+    },
+  });
+}
+
+// Approve draft and publish
+export function useApproveDraft() {
+  return useMutation({
+    mutationFn: async (jobId: number) => {
+      const res = await apiRequest("POST", `/api/jobs/${jobId}/approve`);
+      return res.json() as Promise<{ message: string; project: Project }>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-projects"] });
+    },
   });
 }
 
@@ -100,6 +218,26 @@ export function useSubmitProject() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+  });
+}
+
+// Voice search: upload audio → transcribe → return search query
+export function useVoiceSearch() {
+  return useMutation({
+    mutationFn: async (audioBlob: Blob) => {
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "search.webm");
+      const res = await fetch("/api/search/voice", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Voice search failed" }));
+        throw new Error(err.message);
+      }
+      return res.json() as Promise<{ query: string }>;
     },
   });
 }
@@ -130,6 +268,127 @@ export function useSubscribe() {
     }) => {
       const res = await apiRequest("POST", "/api/subscribe", data);
       return res.json();
+    },
+  });
+}
+
+// === FOLLOWS ===
+
+export function useFollowProject() {
+  return useMutation({
+    mutationFn: async ({ projectId, action }: { projectId: number; action: "follow" | "unfollow" }) => {
+      const method = action === "follow" ? "POST" : "DELETE";
+      const res = await apiRequest(method, `/api/projects/${projectId}/follow`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+    },
+  });
+}
+
+// === COMMENTS ===
+
+export function useComments(projectId: number | null) {
+  return useQuery<CommentData[]>({
+    queryKey: [`/api/projects/${projectId}/comments`],
+    enabled: projectId !== null,
+    staleTime: 10 * 1000,
+  });
+}
+
+export function useCreateComment() {
+  return useMutation({
+    mutationFn: async ({ projectId, content }: { projectId: number; content: string }) => {
+      const res = await apiRequest("POST", `/api/projects/${projectId}/comments`, { content });
+      return res.json() as Promise<CommentData>;
+    },
+    onSuccess: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}/comments`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}`] });
+    },
+  });
+}
+
+export function useDeleteComment() {
+  return useMutation({
+    mutationFn: async ({ commentId }: { commentId: number }) => {
+      const res = await apiRequest("DELETE", `/api/comments/${commentId}`);
+      return res.json();
+    },
+  });
+}
+
+// === SOCIAL SHARES & BALANCE ===
+
+export function useSocialShares() {
+  return useQuery<SocialShareData[]>({
+    queryKey: ["/api/social-shares"],
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useSubmitSocialShare() {
+  return useMutation({
+    mutationFn: async (data: { projectId: number; platform: string; proofUrl: string }) => {
+      const res = await apiRequest("POST", "/api/social-shares", data);
+      return res.json() as Promise<SocialShareData>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-shares"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/balance"] });
+    },
+  });
+}
+
+export function useBalance() {
+  return useQuery<BalanceData>({
+    queryKey: ["/api/balance"],
+    staleTime: 30 * 1000,
+  });
+}
+
+// === NOTIFICATIONS ===
+
+export interface NotificationData {
+  id: number;
+  userId: number;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  linkUrl: string | null;
+  createdAt: string;
+}
+
+export function useNotifications() {
+  return useQuery<{ notifications: NotificationData[]; unreadCount: number }>({
+    queryKey: ["/api/notifications"],
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000, // poll every minute for new notifications
+  });
+}
+
+export function useMarkNotificationRead() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/notifications/${id}/read`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+    },
+  });
+}
+
+export function useMarkAllNotificationsRead() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/notifications/read-all");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
     },
   });
 }
