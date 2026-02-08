@@ -1,9 +1,10 @@
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import { storage } from "./storage";
+import { pool } from "./db";
 import { type Express, type Request } from "express";
-import { createServer } from "http";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { type User } from "@shared/schema";
@@ -39,13 +40,21 @@ declare global {
 }
 
 export function setupAuth(app: Express) {
+  const PgStore = connectPgSimple(session);
+
   const sessionSettings: session.SessionOptions = {
+    store: new PgStore({
+      pool: pool,
+      createTableIfMissing: true,
+    }),
     secret: process.env.SESSION_SECRET || "vibe-coders-united-secret-key",
     resave: false,
     saveUninitialized: false,
-    store: undefined,
     cookie: {
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      httpOnly: true,
     },
   };
 
