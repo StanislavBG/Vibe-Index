@@ -309,7 +309,7 @@ export async function processJob(jobId: number): Promise<void> {
     let scraped: ScrapedData;
     try {
       scraped = await analyzeUrl(project.url);
-    } catch (err: any) {
+    } catch {
       await storage.updateJob(jobId, { step: "analyzing", stepDetail: "Could not fetch site, creating basic listing..." });
       const hostname = new URL(project.url).hostname.replace("www.", "");
       scraped = {
@@ -340,17 +340,20 @@ export async function processJob(jobId: number): Promise<void> {
     });
 
     // Project stays "pending" until user approves
-  } catch (err: any) {
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
     await storage.updateJob(jobId, {
       status: "failed",
       step: "error",
-      error: err.message || "Unknown error",
+      error: errorMessage,
       stepDetail: "Analysis failed",
     });
     // Still mark project active so it's visible even if analysis failed
     try {
       await storage.updateProject(job.projectId, { status: "active" });
-    } catch {}
+    } catch {
+      // Silently ignore — project may have been deleted
+    }
   }
 }
 

@@ -3,8 +3,8 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
 import { setupAuth, requireAuth, syncClerkUser } from "./auth";
-import { submitProjectSchema, subscribeSchema, createCommentSchema, submitSocialShareSchema } from "@shared/schema";
 import { getAuth } from "@clerk/express";
+import { submitProjectSchema, subscribeSchema, createCommentSchema, submitSocialShareSchema } from "@shared/schema";
 import { processJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
 import crypto from "crypto";
 import multer from "multer";
@@ -195,8 +195,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       res.json({ query: transcript });
-    } catch (err: any) {
-      return res.status(500).json({ message: "Voice search failed", detail: err.message });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return res.status(500).json({ message: "Voice search failed", detail: message });
     }
   });
 
@@ -427,8 +428,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       await storage.updateJob(id, { result: JSON.stringify(refined) });
       res.json({ transcript, draft: refined });
-    } catch (err: any) {
-      return res.status(500).json({ message: "Voice processing failed", detail: err.message });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return res.status(500).json({ message: "Voice processing failed", detail: message });
     }
   });
 
@@ -444,8 +446,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       await approveAndPublish(id);
       const project = await storage.getProject(job.projectId);
       res.json({ message: "Project published", project });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message || "Failed to publish" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to publish";
+      res.status(500).json({ message });
     }
   });
 
@@ -568,8 +571,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { content } = createCommentSchema.parse(req.body);
       const project = await storage.getProject(projectId);
       if (!project) return res.status(404).json({ message: "Project not found" });
-      const comment = await storage.createComment(projectId, req.dbUser!.id, content);
-      res.status(201).json({ ...comment, username: req.dbUser!.username });
+      const user = req.dbUser!;
+      const comment = await storage.createComment(projectId, user.id, content);
+      res.status(201).json({ ...comment, username: user.username });
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       throw err;
@@ -594,7 +598,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const project = await storage.getProject(input.projectId);
       if (!project) return res.status(404).json({ message: "Project not found" });
       if (project.status !== "active") return res.status(400).json({ message: "Can only share active projects" });
-      // Cannot earn credits by sharing your own projects
       if (project.ownerId === user.id) {
         return res.status(400).json({ message: "Cannot earn credits by sharing your own projects" });
       }
@@ -632,8 +635,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       await verifySocialShares();
       res.json({ message: "Verification cycle completed" });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message || "Verification failed" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Verification failed";
+      res.status(500).json({ message });
     }
   });
 
@@ -642,8 +646,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ==========================================
   app.get("/api/notifications", requireAuth, syncClerkUser, async (req, res) => {
     const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
-    const notifs = await storage.getNotifications(req.dbUser!.id, limit);
-    const unreadCount = await storage.getUnreadNotificationCount(req.dbUser!.id);
+    const userId = req.dbUser!.id;
+    const notifs = await storage.getNotifications(userId, limit);
+    const unreadCount = await storage.getUnreadNotificationCount(userId);
     res.json({ notifications: notifs, unreadCount });
   });
 
@@ -672,7 +677,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const key = await getStripePublishableKey();
       res.json({ publishableKey: key });
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error getting Stripe publishable key:", error);
       res.status(500).json({ message: "Stripe not configured" });
     }
@@ -694,7 +699,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ORDER BY pr.unit_amount ASC
       `);
       res.json({ products: result.rows });
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error listing Stripe products:", error);
       res.status(500).json({ message: "Failed to load products" });
     }
@@ -725,7 +730,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
 
       res.json({ url: session.url });
-    } catch (error: any) {
+    } catch (error) {
       console.error("Checkout error:", error);
       res.status(500).json({ message: "Failed to create checkout session" });
     }
@@ -790,7 +795,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       fulfilledSessions.add(sessionId);
       res.json({ message: "Credits added", credits });
-    } catch (error: any) {
+    } catch (error) {
       console.error("Fulfillment error:", error);
       res.status(500).json({ message: "Failed to fulfill purchase" });
     }

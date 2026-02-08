@@ -230,10 +230,11 @@ export class DatabaseStorage implements IStorage {
       orderBy = desc(projects.createdAt);
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle dynamic query builder loses type info across branches
     const rows = await (query as any).orderBy(orderBy).limit(limit).offset(offset);
     const [totalRow] = await countQuery;
 
-    const projectList = rows.map((row: any) => row.projects || row);
+    const projectList: Project[] = rows.map((row: { projects?: Project }) => row.projects ?? row);
     return { projects: projectList, total: totalRow.value };
   }
 
@@ -341,15 +342,20 @@ export class DatabaseStorage implements IStorage {
       .where(eq(anonymousSubmissions.fingerprint, fingerprint));
     if (subs.length === 0) return [];
     const projectIds = subs.map(s => s.projectId);
-    const allJobs: Job[] = [];
-    for (const pid of projectIds) {
-      const [job] = await db.select().from(jobs)
-        .where(eq(jobs.projectId, pid))
-        .orderBy(desc(jobs.createdAt))
-        .limit(1);
-      if (job) allJobs.push(job);
+
+    // Single query using DISTINCT ON to get the latest job per project
+    const result = await db.select().from(jobs)
+      .where(sql`${jobs.projectId} IN (${sql.join(projectIds.map(id => sql`${id}`), sql`, `)})`)
+      .orderBy(jobs.projectId, desc(jobs.createdAt));
+
+    // Keep only the most recent job per projectId
+    const latestByProject = new Map<number, Job>();
+    for (const job of result) {
+      if (!latestByProject.has(job.projectId)) {
+        latestByProject.set(job.projectId, job);
+      }
     }
-    return allJobs;
+    return Array.from(latestByProject.values());
   }
 
   async createJob(projectId: number): Promise<Job> {
