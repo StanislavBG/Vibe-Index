@@ -1,16 +1,17 @@
 import { useRoute, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Heart, ExternalLink, Share2, Globe, BookOpen, Github, Clock, Tag, ArrowLeft, Check } from "lucide-react";
+import { Heart, ExternalLink, Share2, Globe, BookOpen, Github, Clock, Tag, ArrowLeft, Check, UserPlus, UserMinus, MessageSquare, Send, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Navbar } from "@/components/Navbar";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
-import { useProject, useLikeProject } from "@/hooks/use-projects";
+import { useProject, useLikeProject, useFollowProject, useComments, useCreateComment, useDeleteComment } from "@/hooks/use-projects";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import { queryClient } from "@/lib/queryClient";
+import { Textarea } from "@/components/ui/textarea";
 
 function timeAgo(dateString: string): string {
   const now = new Date();
@@ -32,10 +33,54 @@ export default function ProjectDetail() {
   const [, navigate] = useLocation();
   const projectId = params?.id ? parseInt(params.id) : null;
   const { data: project, isLoading } = useProject(projectId);
-  const { isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const likeMutation = useLikeProject();
+  const followMutation = useFollowProject();
+  const { data: commentsList, isLoading: commentsLoading } = useComments(projectId);
+  const createComment = useCreateComment();
+  const deleteComment = useDeleteComment();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const [commentText, setCommentText] = useState("");
+
+  const handleFollow = async () => {
+    if (!isAuthenticated) {
+      toast({ title: "Login required", description: "Create an account to follow projects.", variant: "destructive" });
+      return;
+    }
+    if (!project) return;
+    try {
+      await followMutation.mutateAsync({
+        projectId: project.id,
+        action: project.followed ? "unfollow" : "follow",
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${project.id}`] });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to follow", variant: "destructive" });
+    }
+  };
+
+  const handleSubmitComment = async () => {
+    if (!commentText.trim() || !project) return;
+    try {
+      await createComment.mutateAsync({ projectId: project.id, content: commentText.trim() });
+      setCommentText("");
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to post comment", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteComment = async (commentId: number) => {
+    try {
+      await deleteComment.mutateAsync({ commentId });
+      if (project) {
+        queryClient.invalidateQueries({ queryKey: [`/api/projects/${project.id}/comments`] });
+        queryClient.invalidateQueries({ queryKey: [`/api/projects/${project.id}`] });
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to delete", variant: "destructive" });
+    }
+  };
 
   const handleLike = async () => {
     if (!isAuthenticated) {
@@ -150,6 +195,17 @@ export default function ProjectDetail() {
                     {project.likesCount}
                   </Button>
                   <Button
+                    variant={project.followed ? "default" : "outline"}
+                    size="sm"
+                    onClick={handleFollow}
+                    disabled={followMutation.isPending}
+                    className="gap-1.5"
+                  >
+                    {project.followed ? <UserMinus className="w-3.5 h-3.5" /> : <UserPlus className="w-3.5 h-3.5" />}
+                    {project.followed ? "Following" : "Follow"}
+                    {project.followsCount > 0 && <span className="ml-0.5">{project.followsCount}</span>}
+                  </Button>
+                  <Button
                     variant="outline"
                     size="sm"
                     onClick={handleShare}
@@ -246,6 +302,86 @@ export default function ProjectDetail() {
                   </Badge>
                 )}
               </div>
+            </div>
+          </Card>
+
+          {/* Comments Section */}
+          <Card className="glass-card p-6">
+            <div className="space-y-5">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-muted-foreground" />
+                <h2 className="font-bold text-sm">
+                  Comments {project.commentsCount > 0 && `(${project.commentsCount})`}
+                </h2>
+              </div>
+
+              {/* Comment input */}
+              {isAuthenticated ? (
+                <div className="flex gap-2">
+                  <Textarea
+                    placeholder="Add a comment..."
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    className="min-h-[60px] text-sm resize-none"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        handleSubmitComment();
+                      }
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    onClick={handleSubmitComment}
+                    disabled={!commentText.trim() || createComment.isPending}
+                    className="self-end"
+                  >
+                    {createComment.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  <button onClick={() => navigate("/login")} className="underline hover:text-foreground transition-colors">
+                    Log in
+                  </button>{" "}
+                  to leave a comment.
+                </p>
+              )}
+
+              {/* Comments list */}
+              {commentsLoading ? (
+                <div className="space-y-3">
+                  {[...Array(2)].map((_, i) => (
+                    <div key={i} className="h-12 bg-muted/50 rounded animate-pulse" />
+                  ))}
+                </div>
+              ) : commentsList && commentsList.length > 0 ? (
+                <div className="space-y-3">
+                  {commentsList.map((comment) => (
+                    <div key={comment.id} className="flex gap-3 group">
+                      <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs font-bold flex-shrink-0">
+                        {comment.username.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold">{comment.username}</span>
+                          <span className="text-xs text-muted-foreground">{timeAgo(comment.createdAt)}</span>
+                          {user && user.id === comment.userId && (
+                            <button
+                              onClick={() => handleDeleteComment(comment.id)}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-0.5">{comment.content}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No comments yet. Be the first!</p>
+              )}
             </div>
           </Card>
         </motion.div>

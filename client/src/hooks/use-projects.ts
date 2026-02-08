@@ -36,13 +36,53 @@ export interface Project {
   imageUrl: string | null;
   ownerId: number | null;
   likesCount: number;
+  followsCount: number;
+  commentsCount: number;
   status: string;
   claimed: boolean;
   createdAt: string;
   updatedAt: string;
   categories?: Category[];
   liked?: boolean;
+  followed?: boolean;
   job?: Job | null;
+}
+
+export interface CommentData {
+  id: number;
+  projectId: number;
+  userId: number;
+  content: string;
+  username: string;
+  createdAt: string;
+}
+
+export interface SocialShareData {
+  id: number;
+  userId: number;
+  projectId: number;
+  platform: string;
+  proofUrl: string;
+  status: string;
+  creditAmount: number;
+  verifyAfter: string;
+  verifiedAt: string | null;
+  createdAt: string;
+}
+
+export interface BalanceData {
+  freeListingsRemaining: number;
+  paidListingCredits: number;
+  earnedCredits: number;
+  earnedCreditsNeeded: number;
+  totalListingCredits: number;
+  ledger: Array<{
+    id: number;
+    amount: number;
+    type: string;
+    description: string;
+    createdAt: string;
+  }>;
 }
 
 export function useProjects(opts: {
@@ -229,5 +269,81 @@ export function useSubscribe() {
       const res = await apiRequest("POST", "/api/subscribe", data);
       return res.json();
     },
+  });
+}
+
+// === FOLLOWS ===
+
+export function useFollowProject() {
+  return useMutation({
+    mutationFn: async ({ projectId, action }: { projectId: number; action: "follow" | "unfollow" }) => {
+      const method = action === "follow" ? "POST" : "DELETE";
+      const res = await apiRequest(method, `/api/projects/${projectId}/follow`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+    },
+  });
+}
+
+// === COMMENTS ===
+
+export function useComments(projectId: number | null) {
+  return useQuery<CommentData[]>({
+    queryKey: [`/api/projects/${projectId}/comments`],
+    enabled: projectId !== null,
+    staleTime: 10 * 1000,
+  });
+}
+
+export function useCreateComment() {
+  return useMutation({
+    mutationFn: async ({ projectId, content }: { projectId: number; content: string }) => {
+      const res = await apiRequest("POST", `/api/projects/${projectId}/comments`, { content });
+      return res.json() as Promise<CommentData>;
+    },
+    onSuccess: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}/comments`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}`] });
+    },
+  });
+}
+
+export function useDeleteComment() {
+  return useMutation({
+    mutationFn: async ({ commentId }: { commentId: number }) => {
+      const res = await apiRequest("DELETE", `/api/comments/${commentId}`);
+      return res.json();
+    },
+  });
+}
+
+// === SOCIAL SHARES & BALANCE ===
+
+export function useSocialShares() {
+  return useQuery<SocialShareData[]>({
+    queryKey: ["/api/social-shares"],
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useSubmitSocialShare() {
+  return useMutation({
+    mutationFn: async (data: { projectId: number; platform: string; proofUrl: string }) => {
+      const res = await apiRequest("POST", "/api/social-shares", data);
+      return res.json() as Promise<SocialShareData>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-shares"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/balance"] });
+    },
+  });
+}
+
+export function useBalance() {
+  return useQuery<BalanceData>({
+    queryKey: ["/api/balance"],
+    staleTime: 30 * 1000,
   });
 }

@@ -2,9 +2,11 @@ import { db } from "./db";
 import {
   users, projects, categories, projectCategories, likes,
   categorySubscriptions, anonymousSubmissions, jobs, newsletterPreferences,
+  comments, projectFollows, socialShares, creditLedger,
   type User, type InsertUser, type Project, type InsertProject,
   type Category, type InsertCategory, type Like, type CategorySubscription,
-  type Job, type NewsletterPreference,
+  type Job, type NewsletterPreference, type Comment, type ProjectFollow,
+  type SocialShare, type CreditLedgerEntry,
 } from "@shared/schema";
 import { eq, and, ilike, or, sql, desc, asc, count } from "drizzle-orm";
 
@@ -59,6 +61,28 @@ export interface IStorage {
   // Anonymous Submissions
   getAnonymousSubmissionCount(fingerprint: string): Promise<number>;
   createAnonymousSubmission(fingerprint: string, projectId: number): Promise<void>;
+
+  // Comments
+  getComments(projectId: number): Promise<(Comment & { username: string })[]>;
+  createComment(projectId: number, userId: number, content: string): Promise<Comment>;
+  deleteComment(id: number, userId: number): Promise<boolean>;
+
+  // Project Follows
+  getFollow(userId: number, projectId: number): Promise<ProjectFollow | undefined>;
+  createFollow(userId: number, projectId: number): Promise<ProjectFollow>;
+  deleteFollow(userId: number, projectId: number): Promise<boolean>;
+  incrementFollowsCount(projectId: number, delta: number): Promise<void>;
+
+  // Social Shares & Credits
+  createSocialShare(userId: number, projectId: number, platform: string, proofUrl: string): Promise<SocialShare>;
+  getSocialSharesByUser(userId: number): Promise<SocialShare[]>;
+  getPendingSocialShares(): Promise<SocialShare[]>;
+  updateSocialShare(id: number, updates: Partial<Pick<SocialShare, "status" | "verifiedAt">>): Promise<SocialShare | undefined>;
+  addCreditLedgerEntry(userId: number, amount: number, type: string, description: string, sourceId?: number, sourceType?: string): Promise<CreditLedgerEntry>;
+  getCreditLedger(userId: number): Promise<CreditLedgerEntry[]>;
+  getEarnedCredits(userId: number): Promise<number>;
+  updateEarnedCredits(userId: number, amount: number): Promise<void>;
+  convertEarnedCredits(userId: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -370,6 +394,131 @@ export class DatabaseStorage implements IStorage {
 
   async createAnonymousSubmission(fingerprint: string, projectId: number): Promise<void> {
     await db.insert(anonymousSubmissions).values({ fingerprint, projectId });
+  }
+
+  // === COMMENTS ===
+  async getComments(projectId: number): Promise<(Comment & { username: string })[]> {
+    const rows = await db.select({
+      comment: comments,
+      username: users.username,
+    })
+      .from(comments)
+      .innerJoin(users, eq(comments.userId, users.id))
+      .where(eq(comments.projectId, projectId))
+      .orderBy(desc(comments.createdAt));
+    return rows.map(r => ({ ...r.comment, username: r.username }));
+  }
+
+  async createComment(projectId: number, userId: number, content: string): Promise<Comment> {
+    const [comment] = await db.insert(comments).values({ projectId, userId, content }).returning();
+    await db.update(projects).set({
+      commentsCount: sql`${projects.commentsCount} + 1`,
+    }).where(eq(projects.id, projectId));
+    return comment;
+  }
+
+  async deleteComment(id: number, userId: number): Promise<boolean> {
+    const [comment] = await db.select().from(comments).where(eq(comments.id, id));
+    if (!comment || comment.userId !== userId) return false;
+    await db.delete(comments).where(eq(comments.id, id));
+    await db.update(projects).set({
+      commentsCount: sql`GREATEST(${projects.commentsCount} - 1, 0)`,
+    }).where(eq(projects.id, comment.projectId));
+    return true;
+  }
+
+  // === PROJECT FOLLOWS ===
+  async getFollow(userId: number, projectId: number): Promise<ProjectFollow | undefined> {
+    const [follow] = await db.select().from(projectFollows)
+      .where(and(eq(projectFollows.userId, userId), eq(projectFollows.projectId, projectId)));
+    return follow;
+  }
+
+  async createFollow(userId: number, projectId: number): Promise<ProjectFollow> {
+    const [follow] = await db.insert(projectFollows).values({ userId, projectId }).returning();
+    return follow;
+  }
+
+  async deleteFollow(userId: number, projectId: number): Promise<boolean> {
+    const result = await db.delete(projectFollows)
+      .where(and(eq(projectFollows.userId, userId), eq(projectFollows.projectId, projectId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async incrementFollowsCount(projectId: number, delta: number): Promise<void> {
+    await db.update(projects).set({
+      followsCount: sql`${projects.followsCount} + ${delta}`,
+    }).where(eq(projects.id, projectId));
+  }
+
+  // === SOCIAL SHARES & CREDITS ===
+  async createSocialShare(userId: number, projectId: number, platform: string, proofUrl: string): Promise<SocialShare> {
+    const verifyAfter = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+    const [share] = await db.insert(socialShares).values({
+      userId, projectId, platform, proofUrl, verifyAfter,
+      status: "pending", creditAmount: 20,
+    }).returning();
+    return share;
+  }
+
+  async getSocialSharesByUser(userId: number): Promise<SocialShare[]> {
+    return db.select().from(socialShares)
+      .where(eq(socialShares.userId, userId))
+      .orderBy(desc(socialShares.createdAt));
+  }
+
+  async getPendingSocialShares(): Promise<SocialShare[]> {
+    return db.select().from(socialShares)
+      .where(and(
+        eq(socialShares.status, "pending"),
+        sql`${socialShares.verifyAfter} <= NOW()`
+      ))
+      .orderBy(asc(socialShares.createdAt));
+  }
+
+  async updateSocialShare(id: number, updates: Partial<Pick<SocialShare, "status" | "verifiedAt">>): Promise<SocialShare | undefined> {
+    const [share] = await db.update(socialShares).set(updates).where(eq(socialShares.id, id)).returning();
+    return share;
+  }
+
+  async addCreditLedgerEntry(userId: number, amount: number, type: string, description: string, sourceId?: number, sourceType?: string): Promise<CreditLedgerEntry> {
+    const [entry] = await db.insert(creditLedger).values({
+      userId, amount, type, description, sourceId, sourceType,
+    }).returning();
+    return entry;
+  }
+
+  async getCreditLedger(userId: number): Promise<CreditLedgerEntry[]> {
+    return db.select().from(creditLedger)
+      .where(eq(creditLedger.userId, userId))
+      .orderBy(desc(creditLedger.createdAt));
+  }
+
+  async getEarnedCredits(userId: number): Promise<number> {
+    const [user] = await db.select({ earnedCredits: users.earnedCredits }).from(users).where(eq(users.id, userId));
+    return user?.earnedCredits ?? 0;
+  }
+
+  async updateEarnedCredits(userId: number, amount: number): Promise<void> {
+    await db.update(users).set({
+      earnedCredits: sql`${users.earnedCredits} + ${amount}`,
+    }).where(eq(users.id, userId));
+  }
+
+  // Convert earned credits to listing credits when they reach 100
+  async convertEarnedCredits(userId: number): Promise<number> {
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) return 0;
+    const fullCredits = Math.floor(user.earnedCredits / 100);
+    if (fullCredits > 0) {
+      const remainder = user.earnedCredits % 100;
+      await db.update(users).set({
+        earnedCredits: remainder,
+        paidListingCredits: sql`${users.paidListingCredits} + ${fullCredits}`,
+      }).where(eq(users.id, userId));
+    }
+    return fullCredits;
   }
 }
 

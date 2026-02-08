@@ -3,7 +3,7 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
 import { setupAuth, hashPassword, comparePasswords, requireAuth } from "./auth";
-import { registerUserSchema, loginUserSchema, submitProjectSchema, subscribeSchema } from "@shared/schema";
+import { registerUserSchema, loginUserSchema, submitProjectSchema, subscribeSchema, createCommentSchema, submitSocialShareSchema } from "@shared/schema";
 import { processJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
 import crypto from "crypto";
 import multer from "multer";
@@ -153,11 +153,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const cats = await storage.getProjectCategories(id);
     const job = await storage.getJobByProject(id);
     let liked = false;
+    let followed = false;
     if (req.isAuthenticated()) {
       const like = await storage.getLike(req.user!.id, id);
       liked = !!like;
+      const follow = await storage.getFollow(req.user!.id, id);
+      followed = !!follow;
     }
-    res.json({ ...project, categories: cats, liked, job: job || null });
+    res.json({ ...project, categories: cats, liked, followed, job: job || null });
   });
 
   // Submit project: creates project + kicks off scraper agent
@@ -463,6 +466,146 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!email || !categoryId) return res.status(400).json({ message: "Email and categoryId required" });
     await storage.unsubscribe(email, parseInt(categoryId));
     res.json({ message: "Unsubscribed" });
+  });
+
+  // ==========================================
+  // FOLLOWS
+  // ==========================================
+  app.post("/api/projects/:id/follow", requireAuth, async (req, res) => {
+    const projectId = parseInt(req.params.id as string);
+    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+    const user = req.user!;
+    const existing = await storage.getFollow(user.id, projectId);
+    if (existing) return res.status(400).json({ message: "Already following this project" });
+    const project = await storage.getProject(projectId);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+    await storage.createFollow(user.id, projectId);
+    await storage.incrementFollowsCount(projectId, 1);
+    res.json({ message: "Following", followsCount: project.followsCount + 1 });
+  });
+
+  app.delete("/api/projects/:id/follow", requireAuth, async (req, res) => {
+    const projectId = parseInt(req.params.id as string);
+    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+    const user = req.user!;
+    const deleted = await storage.deleteFollow(user.id, projectId);
+    if (!deleted) return res.status(400).json({ message: "Not following" });
+    await storage.incrementFollowsCount(projectId, -1);
+    const project = await storage.getProject(projectId);
+    res.json({ message: "Unfollowed", followsCount: project?.followsCount || 0 });
+  });
+
+  // ==========================================
+  // COMMENTS
+  // ==========================================
+  app.get("/api/projects/:id/comments", async (req, res) => {
+    const projectId = parseInt(req.params.id as string);
+    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+    const commentList = await storage.getComments(projectId);
+    res.json(commentList);
+  });
+
+  app.post("/api/projects/:id/comments", requireAuth, async (req, res) => {
+    const projectId = parseInt(req.params.id as string);
+    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+    try {
+      const { content } = createCommentSchema.parse(req.body);
+      const project = await storage.getProject(projectId);
+      if (!project) return res.status(404).json({ message: "Project not found" });
+      const comment = await storage.createComment(projectId, req.user!.id, content);
+      res.status(201).json({ ...comment, username: req.user!.username });
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.delete("/api/comments/:id", requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid comment ID" });
+    const deleted = await storage.deleteComment(id, req.user!.id);
+    if (!deleted) return res.status(403).json({ message: "Cannot delete this comment" });
+    res.json({ message: "Comment deleted" });
+  });
+
+  // ==========================================
+  // SOCIAL SHARES & CREDIT EARNING
+  // ==========================================
+  app.post("/api/social-shares", requireAuth, async (req, res) => {
+    try {
+      const input = submitSocialShareSchema.parse(req.body);
+      const user = req.user!;
+      const project = await storage.getProject(input.projectId);
+      if (!project) return res.status(404).json({ message: "Project not found" });
+      if (project.status !== "active") return res.status(400).json({ message: "Can only share active projects" });
+      // Cannot earn credits by sharing your own projects
+      if (project.ownerId === user.id) {
+        return res.status(400).json({ message: "Cannot earn credits by sharing your own projects" });
+      }
+      const share = await storage.createSocialShare(user.id, input.projectId, input.platform, input.proofUrl);
+      res.status(201).json(share);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.get("/api/social-shares", requireAuth, async (req, res) => {
+    const shares = await storage.getSocialSharesByUser(req.user!.id);
+    res.json(shares);
+  });
+
+  // Balance endpoint: current listing balance + earned credit progress
+  app.get("/api/balance", requireAuth, async (req, res) => {
+    const user = req.user!;
+    const freshUser = await storage.getUser(user.id);
+    if (!freshUser) return res.status(404).json({ message: "User not found" });
+    const ledger = await storage.getCreditLedger(user.id);
+    res.json({
+      freeListingsRemaining: freshUser.freeListingsRemaining,
+      paidListingCredits: freshUser.paidListingCredits,
+      earnedCredits: freshUser.earnedCredits,
+      earnedCreditsNeeded: 100,
+      totalListingCredits: freshUser.freeListingsRemaining + freshUser.paidListingCredits,
+      ledger,
+    });
+  });
+
+  // Verify pending social shares (called periodically or on-demand)
+  app.post("/api/social-shares/verify", async (req, res) => {
+    const pending = await storage.getPendingSocialShares();
+    let verified = 0;
+    let rejected = 0;
+
+    for (const share of pending) {
+      try {
+        // Check if the proof URL is still accessible
+        const response = await fetch(share.proofUrl, {
+          method: "HEAD",
+          redirect: "follow",
+          signal: AbortSignal.timeout(10000),
+        });
+        if (response.ok) {
+          await storage.updateSocialShare(share.id, { status: "verified", verifiedAt: new Date() });
+          await storage.updateEarnedCredits(share.userId, share.creditAmount);
+          await storage.addCreditLedgerEntry(
+            share.userId, share.creditAmount, "social_share",
+            `Shared project on ${share.platform}`, share.id, "social_share"
+          );
+          // Auto-convert if enough credits accumulated
+          await storage.convertEarnedCredits(share.userId);
+          verified++;
+        } else {
+          await storage.updateSocialShare(share.id, { status: "expired" });
+          rejected++;
+        }
+      } catch {
+        await storage.updateSocialShare(share.id, { status: "expired" });
+        rejected++;
+      }
+    }
+
+    res.json({ verified, rejected, total: pending.length });
   });
 
   // ==========================================
