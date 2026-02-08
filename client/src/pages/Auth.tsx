@@ -50,7 +50,7 @@ export function LoginPage() {
                   id="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="rounded-xl"
+                  className=""
                   required
                   autoFocus
                 />
@@ -62,13 +62,13 @@ export function LoginPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="rounded-xl"
+                  className=""
                   required
                 />
               </div>
               <Button
                 type="submit"
-                className="w-full rounded-xl"
+                className="w-full"
                 disabled={login.isPending}
               >
                 {login.isPending ? "Logging in..." : "Log in"}
@@ -78,7 +78,7 @@ export function LoginPage() {
               Don't have an account?{" "}
               <button
                 onClick={() => navigate("/register")}
-                className="text-primary font-medium hover:underline"
+                className="font-medium hover:underline"
               >
                 Sign up
               </button>
@@ -133,7 +133,7 @@ export function RegisterPage() {
                   id="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="rounded-xl"
+                  className=""
                   required
                   autoFocus
                   minLength={3}
@@ -147,7 +147,7 @@ export function RegisterPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="rounded-xl"
+                  className=""
                   required
                 />
               </div>
@@ -158,14 +158,14 @@ export function RegisterPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="rounded-xl"
+                  className=""
                   required
                   minLength={6}
                 />
               </div>
               <Button
                 type="submit"
-                className="w-full rounded-xl"
+                className="w-full"
                 disabled={register.isPending}
               >
                 {register.isPending ? "Creating account..." : "Create Account"}
@@ -175,7 +175,7 @@ export function RegisterPage() {
               Already have an account?{" "}
               <button
                 onClick={() => navigate("/login")}
-                className="text-primary font-medium hover:underline"
+                className="font-medium hover:underline"
               >
                 Log in
               </button>

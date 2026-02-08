@@ -13,8 +13,8 @@ export function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
       <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
-          <span className="text-xl font-black tracking-tighter">
-            VIBE<span className="text-gradient"> INDEX</span>
+          <span className="text-base font-bold tracking-tight">
+            Vibe Index
           </span>
         </Link>
 

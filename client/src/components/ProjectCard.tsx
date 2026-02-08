@@ -32,12 +32,12 @@ export function ProjectCard({ project }: { project: Project }) {
 
   return (
     <Card
-      className="glass-card p-6 cursor-pointer hover:-translate-y-1 transition-all duration-300 hover:shadow-xl group flex flex-col h-full"
+      className="glass-card p-5 cursor-pointer hover:shadow-md transition-shadow duration-200 group flex flex-col h-full"
       onClick={() => navigate(`/project/${project.id}`)}
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1 min-w-0">
-          <h3 className="font-bold text-lg truncate group-hover:text-primary transition-colors">
+          <h3 className="font-semibold text-sm truncate group-hover:text-foreground transition-colors">
             {project.name || getDomainFromUrl(project.url)}
           </h3>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
@@ -66,12 +66,12 @@ export function ProjectCard({ project }: { project: Project }) {
       <div className="flex items-center justify-between mt-auto pt-3 border-t border-border/50">
         <div className="flex items-center gap-2">
           {project.pricingModel && (
-            <Badge variant="secondary" className="text-xs rounded-full">
+            <Badge variant="secondary" className="text-xs rounded-md">
               {project.pricingModel}
             </Badge>
           )}
           {!project.claimed && (
-            <Badge variant="outline" className="text-xs rounded-full text-muted-foreground">
+            <Badge variant="outline" className="text-xs rounded-md text-muted-foreground">
               Anonymous
             </Badge>
           )}

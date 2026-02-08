@@ -51,7 +51,7 @@ export function SubscribeSection() {
     <section className="px-4 py-16">
       <div className="max-w-3xl mx-auto">
         <Card className="glass-card p-8 md:p-12 text-center">
-          <Bell className="w-10 h-10 mx-auto text-primary mb-4" />
+          <Bell className="w-8 h-8 mx-auto text-muted-foreground mb-4" />
           <h2 className="text-2xl md:text-3xl font-bold mb-2">
             Stay in the Loop
           </h2>
@@ -66,7 +66,7 @@ export function SubscribeSection() {
                 <Badge
                   key={cat.id}
                   variant={selectedCategories.includes(cat.id) ? "default" : "outline"}
-                  className="cursor-pointer px-3 py-1.5 text-xs rounded-full transition-all hover:scale-105"
+                  className="cursor-pointer px-2.5 py-1 text-xs rounded-md transition-colors"
                   onClick={() => toggleCategory(cat.id)}
                 >
                   {selectedCategories.includes(cat.id) && (
@@ -83,12 +83,12 @@ export function SubscribeSection() {
                 placeholder="your@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="h-11 rounded-xl"
+                className="h-10"
                 required
               />
               <Button
                 type="submit"
-                className="h-11 rounded-xl px-6"
+                className="h-10 px-5"
                 disabled={subscribeMutation.isPending}
               >
                 {subscribeMutation.isPending ? "..." : "Subscribe"}
