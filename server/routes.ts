@@ -4,8 +4,11 @@ import { storage } from "./storage";
 import { z } from "zod";
 import { setupAuth, hashPassword, comparePasswords, requireAuth } from "./auth";
 import { registerUserSchema, loginUserSchema, submitProjectSchema, subscribeSchema } from "@shared/schema";
-import { processJob } from "./scraper";
+import { processJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
 import crypto from "crypto";
+import multer from "multer";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const DEFAULT_CATEGORIES = [
   { name: "AI & Machine Learning", slug: "ai-ml", description: "Projects using AI, ML, or LLMs", icon: "Brain" },
@@ -221,6 +224,130 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const job = await storage.getJob(id);
     if (!job) return res.status(404).json({ message: "Job not found" });
     res.json(job);
+  });
+
+  // ==========================================
+  // DRAFT REVIEW — agentic editing flow
+  // ==========================================
+
+  // Update draft directly (typing edit)
+  app.patch("/api/jobs/:id/draft", async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid job ID" });
+    const job = await storage.getJob(id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    if (job.status !== "review") return res.status(400).json({ message: "Job is not in review state" });
+    if (!job.result) return res.status(400).json({ message: "No draft to update" });
+
+    const current: ScrapedData = JSON.parse(job.result);
+    const updates = req.body as Partial<ScrapedData>;
+
+    // Merge user edits into draft
+    const updated: ScrapedData = {
+      ...current,
+      ...(updates.name !== undefined && { name: updates.name }),
+      ...(updates.shortDescription !== undefined && { shortDescription: updates.shortDescription }),
+      ...(updates.longDescription !== undefined && { longDescription: updates.longDescription }),
+      ...(updates.pricingModel !== undefined && { pricingModel: updates.pricingModel }),
+      ...(updates.pricingDetails !== undefined && { pricingDetails: updates.pricingDetails }),
+      ...(updates.tags !== undefined && { tags: updates.tags }),
+      ...(updates.suggestedCategories !== undefined && { suggestedCategories: updates.suggestedCategories }),
+      ...(updates.demoUrl !== undefined && { demoUrl: updates.demoUrl }),
+      ...(updates.docsUrl !== undefined && { docsUrl: updates.docsUrl }),
+      ...(updates.repoUrl !== undefined && { repoUrl: updates.repoUrl }),
+    };
+
+    await storage.updateJob(id, { result: JSON.stringify(updated) });
+    res.json(updated);
+  });
+
+  // Refine draft with text feedback (typing or transcribed voice)
+  app.post("/api/jobs/:id/refine", async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid job ID" });
+    const job = await storage.getJob(id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    if (job.status !== "review") return res.status(400).json({ message: "Job is not in review state" });
+    if (!job.result) return res.status(400).json({ message: "No draft to refine" });
+
+    const { feedback } = req.body;
+    if (!feedback || typeof feedback !== "string") {
+      return res.status(400).json({ message: "Feedback text is required" });
+    }
+
+    const current: ScrapedData = JSON.parse(job.result);
+    const refined = refineDraft(current, feedback);
+
+    await storage.updateJob(id, { result: JSON.stringify(refined) });
+    res.json(refined);
+  });
+
+  // Voice feedback: accept audio, transcribe via OpenAI Whisper, then refine
+  app.post("/api/jobs/:id/voice", upload.single("audio"), async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid job ID" });
+    const job = await storage.getJob(id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    if (job.status !== "review") return res.status(400).json({ message: "Job is not in review state" });
+    if (!job.result) return res.status(400).json({ message: "No draft to refine" });
+
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: "Audio file is required" });
+
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (!openaiKey) {
+      return res.status(503).json({ message: "Voice transcription not configured. Set OPENAI_API_KEY." });
+    }
+
+    try {
+      // Send to OpenAI Whisper for transcription
+      const formData = new FormData();
+      formData.append("file", new Blob([file.buffer], { type: file.mimetype }), file.originalname || "audio.webm");
+      formData.append("model", "whisper-1");
+      formData.append("response_format", "text");
+
+      const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openaiKey}` },
+        body: formData,
+      });
+
+      if (!whisperRes.ok) {
+        const err = await whisperRes.text();
+        return res.status(502).json({ message: "Transcription failed", detail: err });
+      }
+
+      const transcript = (await whisperRes.text()).trim();
+      if (!transcript) {
+        return res.status(400).json({ message: "Could not transcribe audio. Try again or use text instead." });
+      }
+
+      // Now refine the draft with the transcript
+      const current: ScrapedData = JSON.parse(job.result);
+      const refined = refineDraft(current, transcript);
+
+      await storage.updateJob(id, { result: JSON.stringify(refined) });
+      res.json({ transcript, draft: refined });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Voice processing failed", detail: err.message });
+    }
+  });
+
+  // Approve draft and publish project
+  app.post("/api/jobs/:id/approve", async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid job ID" });
+    const job = await storage.getJob(id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    if (job.status !== "review") return res.status(400).json({ message: "Job is not in review state" });
+
+    try {
+      await approveAndPublish(id);
+      const project = await storage.getProject(job.projectId);
+      res.json({ message: "Project published", project });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to publish" });
+    }
   });
 
   // ==========================================

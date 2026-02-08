@@ -1,6 +1,6 @@
 import { storage } from "./storage";
 
-interface ScrapedData {
+export interface ScrapedData {
   name: string;
   shortDescription: string;
   longDescription: string;
@@ -157,7 +157,6 @@ function extractTags(meta: Record<string, string>, text: string): string[] {
   if (meta.keywords) {
     tags.push(...meta.keywords.split(",").map((t) => t.trim()).filter(Boolean));
   }
-  // Extract common tech keywords
   const techKeywords = [
     "react", "vue", "angular", "next.js", "svelte", "typescript", "javascript",
     "python", "rust", "go", "node.js", "tailwind", "postgresql", "mongodb",
@@ -173,7 +172,7 @@ function extractTags(meta: Record<string, string>, text: string): string[] {
 }
 
 // Main analysis function — scrapes a URL and extracts structured project data
-async function analyzeUrl(url: string): Promise<ScrapedData> {
+export async function analyzeUrl(url: string): Promise<ScrapedData> {
   // First try vibe-index.json
   const vibeData = await fetchVibeIndexFile(url);
   if (vibeData && vibeData.name) {
@@ -191,7 +190,6 @@ async function analyzeUrl(url: string): Promise<ScrapedData> {
 
   const name = meta["og:title"] || meta.title || new URL(url).hostname.replace("www.", "");
   const shortDesc = meta["og:description"] || meta.description || "";
-  // Build a longer description from the first meaningful chunk of text
   const longDesc = plainText.slice(0, 500);
 
   return {
@@ -208,13 +206,97 @@ async function analyzeUrl(url: string): Promise<ScrapedData> {
   };
 }
 
-// Process a job: update status in real-time, scrape, update project
+// Refine a draft using user feedback — merges current draft with feedback text
+export function refineDraft(current: ScrapedData, feedback: string): ScrapedData {
+  // Parse feedback for structured intent
+  const lower = feedback.toLowerCase();
+
+  const refined = { ...current };
+
+  // Name override: "call it X" / "name should be X" / "rename to X"
+  const nameMatch = feedback.match(/(?:call it|name (?:should be|it|is)|rename (?:to|it))\s+["']?([^"'\n.]+)["']?/i);
+  if (nameMatch) {
+    refined.name = nameMatch[1].trim();
+  }
+
+  // Description override: "description should be X" / "describe it as X"
+  const descMatch = feedback.match(/(?:description (?:should be|is)|describe (?:it )?as)\s+["']?([^"'\n]+)["']?/i);
+  if (descMatch) {
+    refined.shortDescription = descMatch[1].trim().slice(0, 300);
+  }
+
+  // Tag additions: "add tag X" / "also tag with X"
+  const tagAddMatch = feedback.match(/(?:add tags?|tag (?:it )?with|also include tags?)\s+(.+)/i);
+  if (tagAddMatch) {
+    const newTags = tagAddMatch[1].split(/[,\s]+/).map(t => t.trim().toLowerCase()).filter(Boolean);
+    const combined = refined.tags.concat(newTags);
+    const unique: string[] = [];
+    combined.forEach(t => { if (!unique.includes(t)) unique.push(t); });
+    refined.tags = unique.slice(0, 10);
+  }
+
+  // Tag removals: "remove tag X"
+  const tagRemoveMatch = feedback.match(/(?:remove tags?|drop tags?|delete tags?)\s+(.+)/i);
+  if (tagRemoveMatch) {
+    const removeTags = tagRemoveMatch[1].split(/[,\s]+/).map(t => t.trim().toLowerCase());
+    refined.tags = refined.tags.filter(t => !removeTags.includes(t.toLowerCase()));
+  }
+
+  // Pricing override
+  if (lower.includes("it's free") || lower.includes("this is free") || lower.includes("make it free")) {
+    refined.pricingModel = "free";
+    refined.pricingDetails = null;
+  } else if (lower.includes("it's paid") || lower.includes("subscription")) {
+    refined.pricingModel = "subscription";
+  }
+
+  // Category hints — will be re-evaluated during approval
+  const catMatch = feedback.match(/(?:categor(?:y|ize)|put (?:it )?(?:in|under))\s+(.+)/i);
+  if (catMatch) {
+    const catHint = catMatch[1].trim().toLowerCase();
+    // Map common terms to slugs
+    const catMap: Record<string, string> = {
+      "ai": "ai-ml", "machine learning": "ai-ml", "ml": "ai-ml",
+      "developer": "dev-tools", "dev tools": "dev-tools", "tools": "dev-tools",
+      "web": "web-apps", "webapp": "web-apps",
+      "mobile": "mobile-apps",
+      "api": "apis-backend", "backend": "apis-backend",
+      "game": "games", "gaming": "games",
+      "ecommerce": "ecommerce", "shop": "ecommerce",
+      "productivity": "productivity",
+      "social": "social",
+      "education": "education",
+      "finance": "finance",
+      "design": "design-creative",
+    };
+    for (const [term, slug] of Object.entries(catMap)) {
+      if (catHint.includes(term) && !refined.suggestedCategories.includes(slug)) {
+        refined.suggestedCategories = [slug, ...refined.suggestedCategories].slice(0, 3);
+      }
+    }
+  }
+
+  // If none of the structured patterns matched, treat it as a general rewrite request
+  // by appending the feedback context to the long description
+  if (!nameMatch && !descMatch && !tagAddMatch && !tagRemoveMatch && !catMatch && feedback.trim().length > 10) {
+    // Use feedback as the new short description if it's concise enough
+    if (feedback.trim().length <= 300) {
+      refined.shortDescription = feedback.trim();
+    } else {
+      refined.longDescription = feedback.trim().slice(0, 500);
+    }
+  }
+
+  return refined;
+}
+
+// Process a job: scrape → produce draft → pause for user review
 export async function processJob(jobId: number): Promise<void> {
   const job = await storage.getJob(jobId);
   if (!job) return;
 
   try {
-    // Step 1: Running
+    // Step 1: Fetching
     await storage.updateJob(jobId, { status: "running", step: "fetching", stepDetail: "Fetching website content..." });
 
     const project = await storage.getProject(job.projectId);
@@ -223,12 +305,11 @@ export async function processJob(jobId: number): Promise<void> {
       return;
     }
 
-    // Step 2: Fetch + analyze
+    // Step 2: Analyze
     let scraped: ScrapedData;
     try {
       scraped = await analyzeUrl(project.url);
     } catch (err: any) {
-      // Even if scraping fails, create a basic project page from the URL
       await storage.updateJob(jobId, { step: "analyzing", stepDetail: "Could not fetch site, creating basic listing..." });
       const hostname = new URL(project.url).hostname.replace("www.", "");
       scraped = {
@@ -250,37 +331,15 @@ export async function processJob(jobId: number): Promise<void> {
     // Step 3: Categorize
     await storage.updateJob(jobId, { step: "categorizing", stepDetail: "Assigning categories and tags..." });
 
-    // Map category slugs to IDs
-    const allCategories = await storage.getCategories();
-    const categoryIds = scraped.suggestedCategories
-      .map((slug) => allCategories.find((c) => c.slug === slug)?.id)
-      .filter((id): id is number => id !== undefined);
-
-    // Step 4: Update project
-    await storage.updateProject(project.id, {
-      name: scraped.name,
-      shortDescription: scraped.shortDescription,
-      longDescription: scraped.longDescription || null,
-      pricingModel: scraped.pricingModel,
-      pricingDetails: scraped.pricingDetails,
-      tags: scraped.tags.join(", "),
-      demoUrl: scraped.demoUrl,
-      docsUrl: scraped.docsUrl,
-      repoUrl: scraped.repoUrl,
-      status: "active",
-    });
-
-    if (categoryIds.length > 0) {
-      await storage.setProjectCategories(project.id, categoryIds);
-    }
-
-    // Done
+    // Step 4: Draft ready — pause for user review instead of auto-publishing
     await storage.updateJob(jobId, {
-      status: "completed",
-      step: "done",
-      stepDetail: "Project page generated successfully",
+      status: "review",
+      step: "review",
+      stepDetail: "Draft ready for your review",
       result: JSON.stringify(scraped),
     });
+
+    // Project stays "pending" until user approves
   } catch (err: any) {
     await storage.updateJob(jobId, {
       status: "failed",
@@ -288,9 +347,48 @@ export async function processJob(jobId: number): Promise<void> {
       error: err.message || "Unknown error",
       stepDetail: "Analysis failed",
     });
-    // Still mark project active so it's visible
+    // Still mark project active so it's visible even if analysis failed
     try {
       await storage.updateProject(job.projectId, { status: "active" });
     } catch {}
   }
+}
+
+// Approve and publish: apply draft to project and make it live
+export async function approveAndPublish(jobId: number): Promise<void> {
+  const job = await storage.getJob(jobId);
+  if (!job || !job.result) throw new Error("No draft to approve");
+
+  const scraped: ScrapedData = JSON.parse(job.result);
+
+  // Map category slugs to IDs
+  const allCategories = await storage.getCategories();
+  const categoryIds = scraped.suggestedCategories
+    .map((slug) => allCategories.find((c) => c.slug === slug)?.id)
+    .filter((id): id is number => id !== undefined);
+
+  // Update project with final data + mark active
+  await storage.updateProject(job.projectId, {
+    name: scraped.name,
+    shortDescription: scraped.shortDescription,
+    longDescription: scraped.longDescription || null,
+    pricingModel: scraped.pricingModel,
+    pricingDetails: scraped.pricingDetails,
+    tags: scraped.tags.join(", "),
+    demoUrl: scraped.demoUrl,
+    docsUrl: scraped.docsUrl,
+    repoUrl: scraped.repoUrl,
+    status: "active",
+  });
+
+  if (categoryIds.length > 0) {
+    await storage.setProjectCategories(job.projectId, categoryIds);
+  }
+
+  // Mark job completed
+  await storage.updateJob(jobId, {
+    status: "completed",
+    step: "done",
+    stepDetail: "Project published",
+  });
 }

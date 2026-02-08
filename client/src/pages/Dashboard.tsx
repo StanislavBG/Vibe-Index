@@ -1,6 +1,6 @@
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Plus, ExternalLink, Trash2, Heart, CreditCard, Loader2, Check, AlertCircle } from "lucide-react";
+import { Plus, ExternalLink, Trash2, Heart, CreditCard, Loader2, Check, AlertCircle, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +31,16 @@ function JobStatusBadge({ job }: { job: Job | null }) {
       <Badge variant="destructive" className="text-xs rounded-md gap-1">
         <AlertCircle className="w-3 h-3" />
         Failed
+      </Badge>
+    );
+  }
+
+  // Draft ready for review
+  if (job.status === "review") {
+    return (
+      <Badge variant="outline" className="text-xs rounded-md gap-1 border-foreground/40">
+        <Pencil className="w-3 h-3" />
+        Needs review
       </Badge>
     );
   }

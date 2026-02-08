@@ -77,6 +77,20 @@ export function useCategories() {
   return useQuery<Category[]>({ queryKey: ["/api/categories"], staleTime: 5 * 60 * 1000 });
 }
 
+// Draft shape returned by scraper
+export interface DraftData {
+  name: string;
+  shortDescription: string;
+  longDescription: string;
+  pricingModel: string;
+  pricingDetails: string | null;
+  tags: string[];
+  suggestedCategories: string[];
+  demoUrl: string | null;
+  docsUrl: string | null;
+  repoUrl: string | null;
+}
+
 export function useJob(jobId: number | null) {
   return useQuery<Job>({
     queryKey: [`/api/jobs/${jobId}`],
@@ -84,10 +98,74 @@ export function useJob(jobId: number | null) {
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return 1000;
-      if (data.status === "completed" || data.status === "failed") return false;
+      // Stop polling when in review, completed, or failed
+      if (data.status === "completed" || data.status === "failed" || data.status === "review") return false;
       return 1500;
     },
     staleTime: 0,
+  });
+}
+
+// Update draft fields directly (typing edits)
+export function useUpdateDraft() {
+  return useMutation({
+    mutationFn: async ({ jobId, updates }: { jobId: number; updates: Partial<DraftData> }) => {
+      const res = await apiRequest("PATCH", `/api/jobs/${jobId}/draft`, updates);
+      return res.json() as Promise<DraftData>;
+    },
+    onSuccess: (_, { jobId }) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/jobs/${jobId}`] });
+    },
+  });
+}
+
+// Refine draft with text feedback
+export function useRefineDraft() {
+  return useMutation({
+    mutationFn: async ({ jobId, feedback }: { jobId: number; feedback: string }) => {
+      const res = await apiRequest("POST", `/api/jobs/${jobId}/refine`, { feedback });
+      return res.json() as Promise<DraftData>;
+    },
+    onSuccess: (_, { jobId }) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/jobs/${jobId}`] });
+    },
+  });
+}
+
+// Voice feedback: upload audio → transcribe → refine draft
+export function useVoiceRefine() {
+  return useMutation({
+    mutationFn: async ({ jobId, audioBlob }: { jobId: number; audioBlob: Blob }) => {
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "voice.webm");
+      const res = await fetch(`/api/jobs/${jobId}/voice`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Voice processing failed" }));
+        throw new Error(err.message);
+      }
+      return res.json() as Promise<{ transcript: string; draft: DraftData }>;
+    },
+    onSuccess: (_, { jobId }) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/jobs/${jobId}`] });
+    },
+  });
+}
+
+// Approve draft and publish
+export function useApproveDraft() {
+  return useMutation({
+    mutationFn: async (jobId: number) => {
+      const res = await apiRequest("POST", `/api/jobs/${jobId}/approve`);
+      return res.json() as Promise<{ message: string; project: Project }>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-projects"] });
+    },
   });
 }
 
