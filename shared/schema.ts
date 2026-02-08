@@ -152,6 +152,18 @@ export const creditLedger = pgTable("credit_ledger", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// In-app notifications from the system to users
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // share_verified, share_expired, credit_earned, system
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  read: boolean("read").notNull().default(false),
+  linkUrl: text("link_url"), // optional deep link (e.g., /dashboard, /project/42)
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // === BASE SCHEMAS ===
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, likesCount: true, createdAt: true, updatedAt: true });
@@ -215,3 +227,4 @@ export type Comment = typeof comments.$inferSelect;
 export type ProjectFollow = typeof projectFollows.$inferSelect;
 export type SocialShare = typeof socialShares.$inferSelect;
 export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;

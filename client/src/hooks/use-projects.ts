@@ -347,3 +347,48 @@ export function useBalance() {
     staleTime: 30 * 1000,
   });
 }
+
+// === NOTIFICATIONS ===
+
+export interface NotificationData {
+  id: number;
+  userId: number;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  linkUrl: string | null;
+  createdAt: string;
+}
+
+export function useNotifications() {
+  return useQuery<{ notifications: NotificationData[]; unreadCount: number }>({
+    queryKey: ["/api/notifications"],
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000, // poll every minute for new notifications
+  });
+}
+
+export function useMarkNotificationRead() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/notifications/${id}/read`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+    },
+  });
+}
+
+export function useMarkAllNotificationsRead() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/notifications/read-all");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+    },
+  });
+}

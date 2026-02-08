@@ -34,9 +34,95 @@ async function seedCategories() {
   }
 }
 
+// Background job: verify pending social shares every 5 minutes
+async function verifySocialShares() {
+  const pending = await storage.getPendingSocialShares();
+  if (pending.length === 0) return;
+
+  for (const share of pending) {
+    try {
+      const response = await fetch(share.proofUrl, {
+        method: "HEAD",
+        redirect: "follow",
+        signal: AbortSignal.timeout(10000),
+      });
+
+      const project = await storage.getProject(share.projectId);
+      const projectName = project?.name || "a project";
+
+      if (response.ok) {
+        await storage.updateSocialShare(share.id, { status: "verified", verifiedAt: new Date() });
+        await storage.updateEarnedCredits(share.userId, share.creditAmount);
+        await storage.addCreditLedgerEntry(
+          share.userId, share.creditAmount, "social_share",
+          `Shared ${projectName} on ${share.platform}`, share.id, "social_share"
+        );
+
+        // Check if this converts to a full listing credit
+        const converted = await storage.convertEarnedCredits(share.userId);
+
+        // Send verification success notification
+        await storage.createNotification(
+          share.userId,
+          "share_verified",
+          "Share verified!",
+          `Your ${share.platform} share of "${projectName}" was verified. You earned ${share.creditAmount}% toward a new listing credit.${converted > 0 ? ` You unlocked ${converted} new listing credit${converted > 1 ? "s" : ""}!` : ""}`,
+          "/dashboard"
+        );
+
+        if (converted > 0) {
+          await storage.createNotification(
+            share.userId,
+            "credit_earned",
+            "New listing credit earned!",
+            `Congratulations! You've earned ${converted} new listing credit${converted > 1 ? "s" : ""} from social sharing. You can now submit more projects.`,
+            "/submit"
+          );
+        }
+      } else {
+        await storage.updateSocialShare(share.id, { status: "expired" });
+        await storage.createNotification(
+          share.userId,
+          "share_expired",
+          "Share verification failed",
+          `We couldn't verify your ${share.platform} share of "${projectName}". The post may have been removed or is no longer accessible. No credit was awarded.`,
+          "/dashboard"
+        );
+      }
+    } catch {
+      await storage.updateSocialShare(share.id, { status: "expired" });
+
+      const project = await storage.getProject(share.projectId);
+      const projectName = project?.name || "a project";
+      await storage.createNotification(
+        share.userId,
+        "share_expired",
+        "Share verification failed",
+        `We couldn't verify your ${share.platform} share of "${projectName}". The post may have been removed or is no longer accessible. No credit was awarded.`,
+        "/dashboard"
+      );
+    }
+  }
+
+  console.log(`[verifier] Processed ${pending.length} pending shares`);
+}
+
+// Start the background verification loop (every 5 minutes)
+let verificationInterval: ReturnType<typeof setInterval> | null = null;
+function startVerificationScheduler() {
+  if (verificationInterval) return;
+  // Run immediately on startup, then every 5 minutes
+  verifySocialShares().catch(console.error);
+  verificationInterval = setInterval(() => {
+    verifySocialShares().catch(console.error);
+  }, 5 * 60 * 1000);
+  console.log("[verifier] Background social share verification started (every 5m)");
+}
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   setupAuth(app);
   await seedCategories();
+  startVerificationScheduler();
 
   // ==========================================
   // AUTH ROUTES
@@ -571,41 +657,37 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
-  // Verify pending social shares (called periodically or on-demand)
-  app.post("/api/social-shares/verify", async (req, res) => {
-    const pending = await storage.getPendingSocialShares();
-    let verified = 0;
-    let rejected = 0;
-
-    for (const share of pending) {
-      try {
-        // Check if the proof URL is still accessible
-        const response = await fetch(share.proofUrl, {
-          method: "HEAD",
-          redirect: "follow",
-          signal: AbortSignal.timeout(10000),
-        });
-        if (response.ok) {
-          await storage.updateSocialShare(share.id, { status: "verified", verifiedAt: new Date() });
-          await storage.updateEarnedCredits(share.userId, share.creditAmount);
-          await storage.addCreditLedgerEntry(
-            share.userId, share.creditAmount, "social_share",
-            `Shared project on ${share.platform}`, share.id, "social_share"
-          );
-          // Auto-convert if enough credits accumulated
-          await storage.convertEarnedCredits(share.userId);
-          verified++;
-        } else {
-          await storage.updateSocialShare(share.id, { status: "expired" });
-          rejected++;
-        }
-      } catch {
-        await storage.updateSocialShare(share.id, { status: "expired" });
-        rejected++;
-      }
+  // Trigger on-demand verification (also runs automatically every 5 minutes)
+  app.post("/api/social-shares/verify", async (_req, res) => {
+    try {
+      await verifySocialShares();
+      res.json({ message: "Verification cycle completed" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Verification failed" });
     }
+  });
 
-    res.json({ verified, rejected, total: pending.length });
+  // ==========================================
+  // NOTIFICATIONS
+  // ==========================================
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+    const notifs = await storage.getNotifications(req.user!.id, limit);
+    const unreadCount = await storage.getUnreadNotificationCount(req.user!.id);
+    res.json({ notifications: notifs, unreadCount });
+  });
+
+  app.post("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid notification ID" });
+    const success = await storage.markNotificationRead(id, req.user!.id);
+    if (!success) return res.status(404).json({ message: "Notification not found" });
+    res.json({ message: "Marked as read" });
+  });
+
+  app.post("/api/notifications/read-all", requireAuth, async (req, res) => {
+    const count = await storage.markAllNotificationsRead(req.user!.id);
+    res.json({ message: `Marked ${count} notifications as read`, count });
   });
 
   // ==========================================
