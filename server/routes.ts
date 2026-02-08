@@ -106,6 +106,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(result);
   });
 
+  // Voice search: transcribe audio to text and return as search query
+  app.post("/api/search/voice", upload.single("audio"), async (req, res) => {
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: "Audio file is required" });
+
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (!openaiKey) {
+      return res.status(503).json({ message: "Voice search not configured. Set OPENAI_API_KEY." });
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", new Blob([file.buffer], { type: file.mimetype }), file.originalname || "audio.webm");
+      formData.append("model", "whisper-1");
+      formData.append("response_format", "text");
+      formData.append("prompt", "The user is searching for software projects. Transcribe their search query.");
+
+      const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openaiKey}` },
+        body: formData,
+      });
+
+      if (!whisperRes.ok) {
+        const err = await whisperRes.text();
+        return res.status(502).json({ message: "Transcription failed", detail: err });
+      }
+
+      const transcript = (await whisperRes.text()).trim();
+      if (!transcript) {
+        return res.status(400).json({ message: "Could not understand audio. Try again." });
+      }
+
+      res.json({ query: transcript });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Voice search failed", detail: err.message });
+    }
+  });
+
   app.get("/api/projects/:id", async (req, res) => {
     const id = parseInt(req.params.id as string);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid project ID" });

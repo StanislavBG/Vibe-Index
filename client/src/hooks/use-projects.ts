@@ -182,6 +182,26 @@ export function useSubmitProject() {
   });
 }
 
+// Voice search: upload audio → transcribe → return search query
+export function useVoiceSearch() {
+  return useMutation({
+    mutationFn: async (audioBlob: Blob) => {
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "search.webm");
+      const res = await fetch("/api/search/voice", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Voice search failed" }));
+        throw new Error(err.message);
+      }
+      return res.json() as Promise<{ query: string }>;
+    },
+  });
+}
+
 export function useLikeProject() {
   return useMutation({
     mutationFn: async ({ projectId, action }: { projectId: number; action: "like" | "unlike" }) => {

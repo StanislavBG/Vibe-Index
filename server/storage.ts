@@ -101,36 +101,82 @@ export class DatabaseStorage implements IStorage {
     // Only show active projects in public listing
     conditions.push(eq(projects.status, "active"));
 
-    if (search) {
-      conditions.push(
-        or(
-          ilike(projects.name, `%${search}%`),
-          ilike(projects.shortDescription, `%${search}%`),
-          ilike(projects.tags, `%${search}%`)
-        )
-      );
-    }
-
     if (pricingModel) {
       conditions.push(eq(projects.pricingModel, pricingModel));
     }
 
-    let query = db.select().from(projects);
-    let countQuery = db.select({ value: count() }).from(projects);
+    // Semantic search: use PostgreSQL full-text search with ts_vector/ts_query
+    // plus ILIKE fallback for partial matches
+    const hasSearch = search && search.trim().length > 0;
+    const sanitizedSearch = hasSearch ? search.trim().replace(/[^\w\s-]/g, " ").trim() : "";
 
-    if (categoryId) {
-      query = db.select().from(projects)
-        .innerJoin(projectCategories, eq(projects.id, projectCategories.projectId))
-        .where(and(eq(projectCategories.categoryId, categoryId), ...conditions)) as any;
-      countQuery = db.select({ value: count() }).from(projects)
-        .innerJoin(projectCategories, eq(projects.id, projectCategories.projectId))
-        .where(and(eq(projectCategories.categoryId, categoryId), ...conditions)) as any;
-    } else if (conditions.length > 0) {
-      query = query.where(and(...conditions)) as any;
-      countQuery = countQuery.where(and(...conditions)) as any;
+    if (hasSearch) {
+      // Build a tsquery from the search terms (OR between words for broader matches)
+      const words = sanitizedSearch.split(/\s+/).filter(Boolean);
+      const tsQueryStr = words.map(w => `${w}:*`).join(" | ");
+
+      // Full-text match OR substring fallback
+      conditions.push(
+        or(
+          sql`(
+            to_tsvector('english', coalesce(${projects.name}, '') || ' ' || coalesce(${projects.shortDescription}, '') || ' ' || coalesce(${projects.longDescription}, '') || ' ' || coalesce(${projects.tags}, ''))
+            @@ to_tsquery('english', ${tsQueryStr})
+          )`,
+          ilike(projects.name, `%${sanitizedSearch}%`),
+          ilike(projects.shortDescription, `%${sanitizedSearch}%`),
+          ilike(projects.longDescription, `%${sanitizedSearch}%`),
+          ilike(projects.tags, `%${sanitizedSearch}%`)
+        )
+      );
     }
 
-    const orderBy = sortBy === "popular" ? desc(projects.likesCount) : desc(projects.createdAt);
+    // Relevance ranking expression
+    const relevanceExpr = hasSearch
+      ? sql`(
+          ts_rank_cd(
+            to_tsvector('english', coalesce(${projects.name}, '') || ' ' || coalesce(${projects.shortDescription}, '') || ' ' || coalesce(${projects.longDescription}, '') || ' ' || coalesce(${projects.tags}, '')),
+            to_tsquery('english', ${sanitizedSearch.split(/\s+/).filter(Boolean).map(w => `${w}:*`).join(" | ")})
+          )
+          + CASE WHEN lower(coalesce(${projects.name}, '')) LIKE ${`%${sanitizedSearch.toLowerCase()}%`} THEN 2.0 ELSE 0 END
+          + CASE WHEN lower(coalesce(${projects.tags}, '')) LIKE ${`%${sanitizedSearch.toLowerCase()}%`} THEN 1.0 ELSE 0 END
+        )`
+      : sql`0`;
+
+    let query;
+    let countQuery;
+
+    if (categoryId) {
+      const baseWhere = and(eq(projectCategories.categoryId, categoryId), ...conditions);
+      query = db.select({
+        projects: projects,
+        relevance: relevanceExpr,
+      }).from(projects)
+        .innerJoin(projectCategories, eq(projects.id, projectCategories.projectId))
+        .where(baseWhere);
+      countQuery = db.select({ value: count() }).from(projects)
+        .innerJoin(projectCategories, eq(projects.id, projectCategories.projectId))
+        .where(baseWhere);
+    } else {
+      const baseWhere = conditions.length > 0 ? and(...conditions) : undefined;
+      query = db.select({
+        projects: projects,
+        relevance: relevanceExpr,
+      }).from(projects)
+        .where(baseWhere);
+      countQuery = db.select({ value: count() }).from(projects)
+        .where(baseWhere);
+    }
+
+    // Sort: relevance when searching, otherwise newest/popular
+    let orderBy;
+    if (hasSearch && (sortBy === "relevance" || sortBy === "newest")) {
+      orderBy = sql`${relevanceExpr} DESC`;
+    } else if (sortBy === "popular") {
+      orderBy = desc(projects.likesCount);
+    } else {
+      orderBy = desc(projects.createdAt);
+    }
+
     const rows = await (query as any).orderBy(orderBy).limit(limit).offset(offset);
     const [totalRow] = await countQuery;
 
