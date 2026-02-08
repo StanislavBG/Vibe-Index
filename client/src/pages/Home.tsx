@@ -2,12 +2,25 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
 import { motion } from "framer-motion";
-import { ArrowRight, Search, TrendingUp, Clock, Bell, Mic, MicOff, Loader2, Sparkles, X } from "lucide-react";
+import {
+  ArrowRight,
+  Search,
+  TrendingUp,
+  Clock,
+  Bell,
+  Mic,
+  MicOff,
+  Loader2,
+  Sparkles,
+  X,
+  Send,
+  Check,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { useProjects, useCategories, useVoiceSearch } from "@/hooks/use-projects";
+import { useProjects, useCategories, useVoiceSearch, useSubscribe } from "@/hooks/use-projects";
 import { ProjectCard } from "@/components/ProjectCard";
 import { Navbar } from "@/components/Navbar";
 import { useToast } from "@/hooks/use-toast";
@@ -25,19 +38,29 @@ export default function Home() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<number | undefined>();
-  const [sortBy, setSortBy] = useState("newest");
+  const [sortBy, setSortBy] = useState("popular");
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const { toast } = useToast();
 
+  // Quick-submit panel
+  const [submitUrl, setSubmitUrl] = useState("");
+
+  // Inline subscribe panel
+  const [subscribeEmail, setSubscribeEmail] = useState("");
+  const [subscribeCats, setSubscribeCats] = useState<number[]>([]);
+  const subscribeMutation = useSubscribe();
+
   const voiceSearch = useVoiceSearch();
 
-  // Debounce search input — fires query 300ms after user stops typing
   const debouncedSearch = useDebounce(search, 300);
-
-  // When there's a search query, default to relevance sort
-  const effectiveSort = debouncedSearch.trim() ? (sortBy === "newest" ? "relevance" : sortBy) : sortBy;
+  // When searching, default to relevance instead of popular
+  const effectiveSort = debouncedSearch.trim()
+    ? sortBy === "popular"
+      ? "relevance"
+      : sortBy
+    : sortBy;
 
   const { data: categoriesData } = useCategories();
   const { data: projectsData, isLoading: projectsLoading } = useProjects({
@@ -47,7 +70,7 @@ export default function Home() {
     limit: 20,
   });
 
-  // Voice recording
+  // ── Voice recording ──────────────────────────────────────────────
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -57,7 +80,7 @@ export default function Home() {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
+        stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         if (blob.size < 100) {
           toast({ title: "Too short", description: "Hold the mic button longer.", variant: "destructive" });
@@ -75,7 +98,11 @@ export default function Home() {
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
     } catch {
-      toast({ title: "Microphone access denied", description: "Allow mic access to use voice search.", variant: "destructive" });
+      toast({
+        title: "Microphone access denied",
+        description: "Allow mic access to use voice search.",
+        variant: "destructive",
+      });
     }
   }, [voiceSearch, toast]);
 
@@ -88,67 +115,98 @@ export default function Home() {
 
   const clearSearch = () => {
     setSearch("");
-    setSortBy("newest");
+    setSortBy("popular");
   };
+
+  // ── Subscribe helpers ────────────────────────────────────────────
+  const toggleSubscribeCat = (id: number) => {
+    setSubscribeCats((prev) =>
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
+    );
+  };
+
+  const handleSubscribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!subscribeEmail || subscribeCats.length === 0) {
+      toast({
+        title: "Missing fields",
+        description: "Enter your email and select at least one category.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      await subscribeMutation.mutateAsync({
+        email: subscribeEmail,
+        categoryIds: subscribeCats,
+        frequency: "weekly",
+      });
+      toast({ title: "Subscribed!", description: "You'll receive weekly digests matched to your interests." });
+      setSubscribeEmail("");
+      setSubscribeCats([]);
+    } catch (err: any) {
+      toast({ title: "Subscription failed", description: err.message || "Something went wrong", variant: "destructive" });
+    }
+  };
+
+  // ── Quick submit ─────────────────────────────────────────────────
+  const handleQuickSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (submitUrl.trim()) {
+      navigate(`/submit?url=${encodeURIComponent(submitUrl.trim())}`);
+    } else {
+      navigate("/submit");
+    }
+  };
+
+  const isSearching = debouncedSearch.trim().length > 0;
 
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
       opacity: 1,
-      transition: { staggerChildren: 0.06, delayChildren: 0.1 },
+      transition: { staggerChildren: 0.04, delayChildren: 0.05 },
     },
   };
 
   const itemVariants = {
-    hidden: { y: 16, opacity: 0 },
+    hidden: { y: 8, opacity: 0 },
     visible: {
       y: 0,
       opacity: 1,
-      transition: { type: "spring", stiffness: 120, damping: 24 },
+      transition: { type: "spring", stiffness: 200, damping: 30 },
     },
   };
 
-  const isSearching = debouncedSearch.trim().length > 0;
-
   return (
-    <div className="min-h-screen w-full relative">
+    <div className="h-screen flex flex-col overflow-hidden">
       <BackgroundEffect />
       <Navbar />
 
-      {/* Hero Section */}
-      <motion.section
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-        className="pt-28 pb-16 px-4"
-      >
-        <div className="max-w-5xl mx-auto text-center space-y-8">
-          <motion.div variants={itemVariants} className="space-y-4">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary border border-border text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              Project Directory
+      {/* ── HEADER: Search + Sort + Categories ─────────────────────── */}
+      <div className="pt-16 flex-shrink-0 border-b border-border/50 bg-background/80 backdrop-blur-sm">
+        {/* Row 1: Search bar + voice + sort controls */}
+        <div className="px-4 lg:px-6 py-2.5">
+          <div className="flex items-center gap-3">
+            {/* Branding pill */}
+            <div className="flex-shrink-0 hidden sm:flex items-center gap-2 pr-3 border-r border-border">
+              <div>
+                <h1 className="text-sm font-bold leading-tight tracking-tight">Vibe Index</h1>
+                <p className="text-[10px] text-muted-foreground leading-tight">
+                  Community project directory
+                </p>
+              </div>
             </div>
 
-            <h1 className="text-5xl md:text-7xl font-extrabold tracking-tighter leading-[0.9]">
-              Vibe Index
-            </h1>
-
-            <p className="text-lg md:text-xl text-muted-foreground font-normal max-w-xl mx-auto leading-relaxed">
-              The community directory for vibe-coded projects.
-              <br className="hidden md:block" />
-              Drop a link, get discovered.
-            </p>
-          </motion.div>
-
-          {/* Search bar: type + voice */}
-          <motion.div variants={itemVariants} className="max-w-xl mx-auto space-y-4">
-            <div className="flex gap-2">
+            {/* Search input + voice */}
+            <div className="flex-1 flex gap-2 min-w-0">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by name, description, or topic..."
+                  placeholder="Search projects by name, description, or topic..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-10 pr-10 h-12 text-base"
+                  className="pl-10 pr-10 h-10 text-sm"
                 />
                 {search && (
                   <button
@@ -162,7 +220,7 @@ export default function Home() {
               <button
                 onClick={isRecording ? stopRecording : startRecording}
                 disabled={voiceSearch.isPending}
-                className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 transition-all border ${
+                className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-all border ${
                   isRecording
                     ? "bg-destructive text-destructive-foreground border-destructive animate-pulse"
                     : voiceSearch.isPending
@@ -172,42 +230,61 @@ export default function Home() {
                 title={isRecording ? "Stop recording" : "Voice search"}
               >
                 {voiceSearch.isPending ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : isRecording ? (
-                  <MicOff className="w-5 h-5" />
+                  <MicOff className="w-4 h-4" />
                 ) : (
-                  <Mic className="w-5 h-5" />
+                  <Mic className="w-4 h-4" />
                 )}
               </button>
             </div>
 
-            {/* Search mode indicator */}
-            {isSearching && (
-              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                <Sparkles className="w-3 h-3" />
-                Semantic search across names, descriptions, and tags
+            {/* Sort controls + project count */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <span className="text-[11px] text-muted-foreground mr-1.5 hidden lg:inline tabular-nums">
+                {projectsData?.total || 0} projects
+              </span>
+              <div className="flex items-center border border-border rounded-lg overflow-hidden">
+                {isSearching && (
+                  <Button
+                    variant={effectiveSort === "relevance" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-8 text-xs px-2.5 rounded-none border-0"
+                    onClick={() => setSortBy("relevance")}
+                  >
+                    <Sparkles className="w-3 h-3 mr-1" />
+                    Best
+                  </Button>
+                )}
+                <Button
+                  variant={sortBy === "popular" && !isSearching ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 text-xs px-2.5 rounded-none border-0"
+                  onClick={() => setSortBy("popular")}
+                >
+                  <TrendingUp className="w-3 h-3 mr-1" />
+                  Top
+                </Button>
+                <Button
+                  variant={sortBy === "newest" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 text-xs px-2.5 rounded-none border-0"
+                  onClick={() => setSortBy("newest")}
+                >
+                  <Clock className="w-3 h-3 mr-1" />
+                  New
+                </Button>
               </div>
-            )}
-
-            <Button
-              onClick={() => navigate("/submit")}
-              size="lg"
-              className="group"
-            >
-              Submit Your Project
-              <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-            </Button>
-          </motion.div>
+            </div>
+          </div>
         </div>
-      </motion.section>
 
-      {/* Categories Bar */}
-      <section className="px-4 pb-8">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex flex-wrap gap-2 justify-center">
+        {/* Row 2: Category filter pills */}
+        <div className="px-4 lg:px-6 pb-2.5 flex items-center gap-2">
+          <div className="flex flex-wrap gap-1.5">
             <Badge
               variant={!selectedCategory ? "default" : "outline"}
-              className="cursor-pointer px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+              className="cursor-pointer px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors"
               onClick={() => setSelectedCategory(undefined)}
             >
               All
@@ -216,7 +293,7 @@ export default function Home() {
               <Badge
                 key={cat.id}
                 variant={selectedCategory === cat.id ? "default" : "outline"}
-                className="cursor-pointer px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+                className="cursor-pointer px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors"
                 onClick={() =>
                   setSelectedCategory(
                     selectedCategory === cat.id ? undefined : cat.id
@@ -227,90 +304,59 @@ export default function Home() {
               </Badge>
             ))}
           </div>
+          {isSearching && (
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground ml-auto flex-shrink-0">
+              <Sparkles className="w-3 h-3" />
+              Semantic search active
+            </div>
+          )}
         </div>
-      </section>
+      </div>
 
-      {/* Sort Controls */}
-      <section className="px-4 pb-6">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">
-            {projectsData?.total || 0} projects
-            {isSearching && ` matching "${debouncedSearch}"`}
-          </span>
-          <div className="flex items-center gap-1">
-            {isSearching && (
-              <Button
-                variant={effectiveSort === "relevance" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setSortBy("relevance")}
-              >
-                <Sparkles className="w-3.5 h-3.5 mr-1" />
-                Relevance
-              </Button>
-            )}
-            <Button
-              variant={(!isSearching && sortBy === "newest") || (isSearching && effectiveSort === "newest") ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setSortBy("newest")}
-            >
-              <Clock className="w-3.5 h-3.5 mr-1" />
-              Newest
-            </Button>
-            <Button
-              variant={sortBy === "popular" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setSortBy("popular")}
-            >
-              <TrendingUp className="w-3.5 h-3.5 mr-1" />
-              Popular
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      {/* Projects Grid */}
-      <section className="px-4 pb-16">
-        <div className="max-w-6xl mx-auto">
+      {/* ── MAIN CONTENT: Project Grid + Sidebar ───────────────────── */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left: Scrollable project grid */}
+        <div className="flex-1 overflow-y-auto px-4 lg:px-6 py-4">
           {projectsLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[...Array(6)].map((_, i) => (
-                <Card key={i} className="p-6 h-48 animate-pulse bg-muted/50" />
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {[...Array(9)].map((_, i) => (
+                <Card key={i} className="p-5 h-36 animate-pulse bg-muted/50" />
               ))}
             </div>
           ) : projectsData?.projects.length === 0 ? (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-center py-20"
-            >
-              {isSearching ? (
-                <>
-                  <h3 className="text-lg font-semibold mb-2">No results for "{debouncedSearch}"</h3>
-                  <p className="text-muted-foreground mb-6 text-sm">
-                    Try different keywords, or use voice search to describe what you're looking for.
-                  </p>
-                  <Button variant="outline" onClick={clearSearch}>
-                    Clear Search
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <h3 className="text-lg font-semibold mb-2">No projects yet</h3>
-                  <p className="text-muted-foreground mb-6 text-sm">
-                    Be the first to submit a vibe-coded project.
-                  </p>
-                  <Button onClick={() => navigate("/submit")}>
-                    Submit a Project
-                  </Button>
-                </>
-              )}
-            </motion.div>
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                {isSearching ? (
+                  <>
+                    <h3 className="text-base font-semibold mb-1">
+                      No results for "{debouncedSearch}"
+                    </h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Try different keywords or use voice search.
+                    </p>
+                    <Button variant="outline" size="sm" onClick={clearSearch}>
+                      Clear Search
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <h3 className="text-base font-semibold mb-1">No projects yet</h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Be the first to submit a vibe-coded project.
+                    </p>
+                    <Button size="sm" onClick={() => navigate("/submit")}>
+                      Submit a Project
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
           ) : (
             <motion.div
               variants={containerVariants}
               initial="hidden"
               animate="visible"
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+              className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"
             >
               {projectsData?.projects.map((project) => (
                 <motion.div key={project.id} variants={itemVariants}>
@@ -320,40 +366,137 @@ export default function Home() {
             </motion.div>
           )}
         </div>
-      </section>
 
-      {/* Subscribe CTA */}
-      <section className="px-4 py-16">
-        <div className="max-w-3xl mx-auto">
-          <Card className="glass-card p-8 md:p-10 flex flex-col md:flex-row items-center gap-6">
-            <div className="flex-1 text-center md:text-left">
-              <div className="flex items-center gap-2 justify-center md:justify-start mb-2">
-                <Bell className="w-5 h-5 text-muted-foreground" />
-                <h2 className="text-xl font-bold">Stay in the Loop</h2>
+        {/* Right: Sidebar with SUBMIT + STAY IN THE LOOP */}
+        <aside className="hidden lg:flex w-[300px] flex-shrink-0 border-l border-border/50 flex-col overflow-y-auto">
+          {/* ── SUBMIT Panel ──────────────────────────────────────── */}
+          <div className="p-4 pb-3 border-b border-border/50">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-6 h-6 rounded-md bg-foreground text-background flex items-center justify-center">
+                <Send className="w-3.5 h-3.5" />
               </div>
-              <p className="text-sm text-muted-foreground max-w-md">
-                Get AI-curated digests of new projects matched to your interests.
-                Choose your frequency, pick your categories, no spam ever.
-              </p>
+              <h3 className="font-bold text-xs uppercase tracking-widest">
+                Submit
+              </h3>
             </div>
-            <Button
-              onClick={() => navigate("/subscribe")}
-              size="lg"
-              className="gap-2 group flex-shrink-0"
-            >
-              Set Up Your Digest
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-            </Button>
-          </Card>
-        </div>
-      </section>
+            <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
+              Drop a link — our AI builds your listing. Review and publish in
+              under a minute.
+            </p>
+            <form onSubmit={handleQuickSubmit} className="space-y-2">
+              <Input
+                type="url"
+                placeholder="https://your-project.com"
+                value={submitUrl}
+                onChange={(e) => setSubmitUrl(e.target.value)}
+                className="h-9 text-xs"
+              />
+              <Button
+                type="submit"
+                className="w-full h-10 text-xs font-bold gap-2 group"
+              >
+                Submit Your Project
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+            </form>
+            <p className="text-[10px] text-muted-foreground mt-2 text-center">
+              3 free listings — no account needed
+            </p>
+          </div>
 
-      {/* Footer */}
-      <footer className="border-t border-border py-8 px-4">
-        <div className="max-w-6xl mx-auto text-center text-xs text-muted-foreground">
-          Vibe Index
-        </div>
-      </footer>
+          {/* ── STAY IN THE LOOP Panel ────────────────────────────── */}
+          <div className="p-4 flex-1 flex flex-col">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-6 h-6 rounded-md bg-foreground text-background flex items-center justify-center">
+                <Bell className="w-3.5 h-3.5" />
+              </div>
+              <h3 className="font-bold text-xs uppercase tracking-widest">
+                Stay in the Loop
+              </h3>
+            </div>
+            <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
+              AI-curated weekly digests of new projects matched to your
+              interests. Zero spam.
+            </p>
+
+            <form onSubmit={handleSubscribe} className="space-y-3 flex-1 flex flex-col">
+              {/* Category picks */}
+              <div>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                  Categories
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {categoriesData?.map((cat) => (
+                    <Badge
+                      key={cat.id}
+                      variant={
+                        subscribeCats.includes(cat.id) ? "default" : "outline"
+                      }
+                      className="cursor-pointer px-1.5 py-0.5 text-[10px] rounded transition-colors"
+                      onClick={() => toggleSubscribeCat(cat.id)}
+                    >
+                      {subscribeCats.includes(cat.id) && (
+                        <Check className="w-2.5 h-2.5 mr-0.5" />
+                      )}
+                      {cat.name}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+
+              {/* Email */}
+              <Input
+                type="email"
+                placeholder="your@email.com"
+                value={subscribeEmail}
+                onChange={(e) => setSubscribeEmail(e.target.value)}
+                className="h-9 text-xs"
+                required
+              />
+
+              <Button
+                type="submit"
+                className="w-full h-10 text-xs font-bold gap-2 group"
+                disabled={subscribeMutation.isPending}
+              >
+                {subscribeMutation.isPending
+                  ? "Subscribing..."
+                  : "Subscribe to Digest"}
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+
+              <button
+                type="button"
+                onClick={() => navigate("/subscribe")}
+                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors text-center"
+              >
+                Customize frequency & preferences →
+              </button>
+            </form>
+          </div>
+        </aside>
+      </div>
+
+      {/* ── MOBILE: Sticky bottom bar with both CTAs ───────────────── */}
+      <div className="lg:hidden flex-shrink-0 border-t border-border bg-background/95 backdrop-blur-lg px-4 py-2 flex gap-2">
+        <Button
+          size="sm"
+          className="flex-1 h-10 text-xs gap-1.5 font-bold"
+          onClick={() => navigate("/submit")}
+        >
+          <Send className="w-3.5 h-3.5" />
+          Submit Project
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex-1 h-10 text-xs gap-1.5 font-bold"
+          onClick={() => navigate("/subscribe")}
+        >
+          <Bell className="w-3.5 h-3.5" />
+          Stay in the Loop
+        </Button>
+      </div>
     </div>
   );
 }
