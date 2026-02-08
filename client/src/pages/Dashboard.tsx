@@ -1,6 +1,6 @@
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Plus, ExternalLink, Trash2, Edit, Heart, CreditCard } from "lucide-react";
+import { Plus, ExternalLink, Trash2, Heart, CreditCard, Loader2, Check, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,16 +10,57 @@ import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { type Project } from "@/hooks/use-projects";
+import { type Project, type Job } from "@/hooks/use-projects";
+
+type ProjectWithJob = Project & { job: Job | null };
+
+function JobStatusBadge({ job }: { job: Job | null }) {
+  if (!job) return null;
+
+  if (job.status === "completed") {
+    return (
+      <Badge variant="secondary" className="text-xs rounded-md gap-1">
+        <Check className="w-3 h-3" />
+        Live
+      </Badge>
+    );
+  }
+
+  if (job.status === "failed") {
+    return (
+      <Badge variant="destructive" className="text-xs rounded-md gap-1">
+        <AlertCircle className="w-3 h-3" />
+        Failed
+      </Badge>
+    );
+  }
+
+  // queued or running
+  return (
+    <Badge variant="outline" className="text-xs rounded-md gap-1 animate-pulse">
+      <Loader2 className="w-3 h-3 animate-spin" />
+      {job.step === "fetching" ? "Fetching..." :
+       job.step === "analyzing" ? "Analyzing..." :
+       job.step === "categorizing" ? "Categorizing..." :
+       "Processing..."}
+    </Badge>
+  );
+}
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
 
-  const { data: myProjects, isLoading } = useQuery<Project[]>({
+  const { data: myProjects, isLoading } = useQuery<ProjectWithJob[]>({
     queryKey: ["/api/my-projects"],
     enabled: isAuthenticated,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      const hasRunning = data.some((p) => p.job && (p.job.status === "queued" || p.job.status === "running"));
+      return hasRunning ? 3000 : false;
+    },
   });
 
   const deleteMutation = useMutation({
@@ -49,6 +90,8 @@ export default function Dashboard() {
     navigate("/login");
     return null;
   }
+
+  const runningCount = myProjects?.filter((p) => p.job && (p.job.status === "queued" || p.job.status === "running")).length ?? 0;
 
   return (
     <div className="min-h-screen w-full relative">
@@ -98,7 +141,7 @@ export default function Dashboard() {
               <div className="text-sm text-muted-foreground mb-1">My Projects</div>
               <div className="text-3xl font-bold">{myProjects?.length ?? 0}</div>
               <div className="text-xs text-muted-foreground mt-1">
-                Published listings
+                {runningCount > 0 ? `${runningCount} being analyzed` : "Published listings"}
               </div>
             </Card>
           </div>
@@ -129,7 +172,7 @@ export default function Dashboard() {
             ) : myProjects?.length === 0 ? (
               <Card className="glass-card p-8 text-center">
                 <p className="text-muted-foreground mb-4">You haven't submitted any projects yet.</p>
-                <Button onClick={() => navigate("/submit")} className="">
+                <Button onClick={() => navigate("/submit")}>
                   Submit Your First Project
                 </Button>
               </Card>
@@ -142,9 +185,12 @@ export default function Dashboard() {
                         <h3 className="font-bold truncate">
                           {project.name || new URL(project.url).hostname.replace("www.", "")}
                         </h3>
-                        <Badge variant="secondary" className="text-xs rounded-md flex-shrink-0">
-                          {project.likesCount} likes
-                        </Badge>
+                        <JobStatusBadge job={project.job} />
+                        {project.status === "active" && (
+                          <Badge variant="secondary" className="text-xs rounded-md flex-shrink-0">
+                            {project.likesCount} likes
+                          </Badge>
+                        )}
                       </div>
                       <a
                         href={project.url}
@@ -155,6 +201,9 @@ export default function Dashboard() {
                         <ExternalLink className="w-3 h-3" />
                         {project.url}
                       </a>
+                      {project.job && project.job.stepDetail && project.job.status === "running" && (
+                        <p className="text-xs text-muted-foreground mt-1">{project.job.stepDetail}</p>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 ml-4">
                       <Button
@@ -162,6 +211,7 @@ export default function Dashboard() {
                         size="sm"
                         onClick={() => navigate(`/project/${project.id}`)}
                         className="gap-1"
+                        disabled={project.status !== "active"}
                       >
                         View
                       </Button>
