@@ -1,6 +1,6 @@
 import { useRoute, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Heart, ExternalLink, Share2, Globe, BookOpen, Github, Clock, Tag, ArrowLeft, Copy, Check } from "lucide-react";
+import { Heart, ExternalLink, Share2, Globe, BookOpen, Github, Clock, Tag, ArrowLeft, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -69,7 +69,7 @@ export default function ProjectDetail() {
     } else {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
-      toast({ title: "Link copied!", description: "Share it with your friends." });
+      toast({ title: "Link copied!" });
       setTimeout(() => setCopied(false), 2000);
     }
   };
@@ -80,7 +80,7 @@ export default function ProjectDetail() {
         <BackgroundEffect />
         <Navbar />
         <div className="pt-24 pb-16 px-4">
-          <div className="max-w-3xl mx-auto">
+          <div className="max-w-2xl mx-auto">
             <Card className="glass-card p-8 animate-pulse h-96" />
           </div>
         </div>
@@ -94,7 +94,7 @@ export default function ProjectDetail() {
         <BackgroundEffect />
         <Navbar />
         <div className="pt-24 pb-16 px-4 text-center">
-          <h1 className="text-2xl font-bold mb-4">Project not found</h1>
+          <h1 className="text-xl font-semibold mb-4">Project not found</h1>
           <Button onClick={() => navigate("/")}>Back to Home</Button>
         </div>
       </div>
@@ -112,87 +112,81 @@ export default function ProjectDetail() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="max-w-3xl mx-auto space-y-6"
+          className="max-w-2xl mx-auto space-y-5"
         >
-          {/* Back */}
-          <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="gap-2">
+          <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="gap-1.5 text-muted-foreground">
             <ArrowLeft className="w-4 h-4" />
-            Back to projects
+            Back
           </Button>
 
-          {/* Main Card */}
-          <Card className="glass-card p-8 md:p-10">
+          <Card className="glass-card p-8">
             <div className="space-y-6">
               {/* Header */}
               <div className="flex items-start justify-between gap-4">
-                <div className="space-y-2">
-                  <h1 className="text-3xl md:text-4xl font-black tracking-tight">
+                <div className="space-y-1.5">
+                  <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
                     {project.name || new URL(project.url).hostname.replace("www.", "")}
                   </h1>
                   <a
                     href={project.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-primary hover:underline text-sm"
+                    className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground text-sm transition-colors"
                   >
-                    <Globe className="w-4 h-4" />
+                    <Globe className="w-3.5 h-3.5" />
                     {project.url}
                   </a>
                 </div>
 
-                {/* Actions */}
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <Button
                     variant={project.liked ? "default" : "outline"}
                     size="sm"
                     onClick={handleLike}
                     disabled={likeMutation.isPending}
-                    className="gap-2 rounded-full"
+                    className="gap-1.5"
                   >
-                    <Heart className={`w-4 h-4 ${project.liked ? "fill-current" : ""}`} />
+                    <Heart className={`w-3.5 h-3.5 ${project.liked ? "fill-current" : ""}`} />
                     {project.likesCount}
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={handleShare}
-                    className="gap-2 rounded-full"
+                    className="gap-1.5"
                   >
-                    {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+                    {copied ? <Check className="w-3.5 h-3.5" /> : <Share2 className="w-3.5 h-3.5" />}
                     Share
                   </Button>
                 </div>
               </div>
 
-              {/* Description */}
               {project.shortDescription && (
-                <p className="text-lg text-muted-foreground leading-relaxed">
+                <p className="text-muted-foreground leading-relaxed">
                   {project.shortDescription}
                 </p>
               )}
 
               {project.longDescription && (
-                <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <p>{project.longDescription}</p>
-                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {project.longDescription}
+                </p>
               )}
 
-              {/* Categories */}
               {project.categories && project.categories.length > 0 && (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {project.categories.map((cat) => (
-                    <Badge key={cat.id} className="rounded-full">
+                    <Badge key={cat.id} variant="secondary" className="rounded-md text-xs">
                       {cat.name}
                     </Badge>
                   ))}
                 </div>
               )}
 
-              {/* Tags */}
               {tags.length > 0 && (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {tags.map((tag, i) => (
-                    <Badge key={i} variant="outline" className="rounded-full text-xs">
+                    <Badge key={i} variant="outline" className="rounded-md text-xs">
                       <Tag className="w-3 h-3 mr-1" />
                       {tag}
                     </Badge>
@@ -201,33 +195,33 @@ export default function ProjectDetail() {
               )}
 
               {/* Links */}
-              <div className="flex flex-wrap gap-3 pt-4 border-t border-border/50">
+              <div className="flex flex-wrap gap-2 pt-4 border-t border-border">
                 <a href={project.url} target="_blank" rel="noopener noreferrer">
-                  <Button variant="default" size="sm" className="gap-2 rounded-full">
-                    <ExternalLink className="w-4 h-4" />
+                  <Button size="sm" className="gap-1.5">
+                    <ExternalLink className="w-3.5 h-3.5" />
                     Visit Project
                   </Button>
                 </a>
                 {project.demoUrl && (
                   <a href={project.demoUrl} target="_blank" rel="noopener noreferrer">
-                    <Button variant="outline" size="sm" className="gap-2 rounded-full">
-                      <Globe className="w-4 h-4" />
+                    <Button variant="outline" size="sm" className="gap-1.5">
+                      <Globe className="w-3.5 h-3.5" />
                       Demo
                     </Button>
                   </a>
                 )}
                 {project.docsUrl && (
                   <a href={project.docsUrl} target="_blank" rel="noopener noreferrer">
-                    <Button variant="outline" size="sm" className="gap-2 rounded-full">
-                      <BookOpen className="w-4 h-4" />
+                    <Button variant="outline" size="sm" className="gap-1.5">
+                      <BookOpen className="w-3.5 h-3.5" />
                       Docs
                     </Button>
                   </a>
                 )}
                 {project.repoUrl && (
                   <a href={project.repoUrl} target="_blank" rel="noopener noreferrer">
-                    <Button variant="outline" size="sm" className="gap-2 rounded-full">
-                      <Github className="w-4 h-4" />
+                    <Button variant="outline" size="sm" className="gap-1.5">
+                      <Github className="w-3.5 h-3.5" />
                       Source
                     </Button>
                   </a>
@@ -235,19 +229,19 @@ export default function ProjectDetail() {
               </div>
 
               {/* Meta */}
-              <div className="flex items-center gap-4 text-sm text-muted-foreground pt-2">
-                <div className="flex items-center gap-1">
-                  <Clock className="w-4 h-4" />
-                  Submitted {timeAgo(project.createdAt)}
-                </div>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5" />
+                  {timeAgo(project.createdAt)}
+                </span>
                 {project.pricingModel && (
-                  <Badge variant="secondary" className="rounded-full text-xs">
+                  <Badge variant="secondary" className="rounded-md text-xs">
                     {project.pricingModel}
                     {project.pricingDetails ? ` - ${project.pricingDetails}` : ""}
                   </Badge>
                 )}
                 {!project.claimed && (
-                  <Badge variant="outline" className="rounded-full text-xs">
+                  <Badge variant="outline" className="rounded-md text-xs">
                     Unclaimed
                   </Badge>
                 )}

@@ -67,7 +67,7 @@ export default function Dashboard() {
               <h1 className="text-3xl font-black tracking-tight">Dashboard</h1>
               <p className="text-muted-foreground mt-1">Manage your projects and credits</p>
             </div>
-            <Button onClick={() => navigate("/submit")} className="gap-2 rounded-xl">
+            <Button onClick={() => navigate("/submit")} className="gap-2">
               <Plus className="w-4 h-4" />
               New Project
             </Button>
@@ -87,7 +87,7 @@ export default function Dashboard() {
             <Card className="glass-card p-6">
               <div className="text-sm text-muted-foreground mb-1">Likes Remaining</div>
               <div className="text-3xl font-bold flex items-center gap-2">
-                <Heart className="w-6 h-6 text-accent" />
+                <Heart className="w-6 h-6 text-muted-foreground" />
                 {user?.likesRemaining ?? 0}
               </div>
               <div className="text-xs text-muted-foreground mt-1">
@@ -106,7 +106,7 @@ export default function Dashboard() {
           {/* Buy Credits CTA */}
           <Card className="glass-card p-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <CreditCard className="w-5 h-5 text-primary" />
+              <CreditCard className="w-5 h-5 text-muted-foreground" />
               <div>
                 <div className="font-bold text-sm">Need more credits?</div>
                 <div className="text-xs text-muted-foreground">$1 per additional listing or like credit (Stripe integration coming soon)</div>
@@ -129,7 +129,7 @@ export default function Dashboard() {
             ) : myProjects?.length === 0 ? (
               <Card className="glass-card p-8 text-center">
                 <p className="text-muted-foreground mb-4">You haven't submitted any projects yet.</p>
-                <Button onClick={() => navigate("/submit")} className="rounded-xl">
+                <Button onClick={() => navigate("/submit")} className="">
                   Submit Your First Project
                 </Button>
               </Card>
@@ -142,7 +142,7 @@ export default function Dashboard() {
                         <h3 className="font-bold truncate">
                           {project.name || new URL(project.url).hostname.replace("www.", "")}
                         </h3>
-                        <Badge variant="secondary" className="text-xs rounded-full flex-shrink-0">
+                        <Badge variant="secondary" className="text-xs rounded-md flex-shrink-0">
                           {project.likesCount} likes
                         </Badge>
                       </div>
@@ -150,7 +150,7 @@ export default function Dashboard() {
                         href={project.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mt-1"
+                        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 mt-1 transition-colors"
                       >
                         <ExternalLink className="w-3 h-3" />
                         {project.url}

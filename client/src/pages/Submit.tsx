@@ -80,53 +80,51 @@ export default function Submit() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="max-w-2xl mx-auto space-y-8"
+          className="max-w-lg mx-auto space-y-8"
         >
-          <div className="text-center space-y-3">
-            <h1 className="text-4xl font-black tracking-tighter">
-              Submit Your <span className="text-gradient">Project</span>
+          <div className="text-center space-y-2">
+            <h1 className="text-3xl font-bold tracking-tight">
+              Submit a Project
             </h1>
-            <p className="text-muted-foreground">
-              Just drop a link. That's it. We'll handle the rest.
+            <p className="text-sm text-muted-foreground">
+              Just paste a link. We'll handle the rest.
             </p>
             {isAuthenticated && (
-              <p className="text-sm text-muted-foreground">
-                You have <span className="font-bold text-foreground">{creditsRemaining}</span> listing {creditsRemaining === 1 ? "credit" : "credits"} remaining.
+              <p className="text-xs text-muted-foreground">
+                {creditsRemaining} listing {creditsRemaining === 1 ? "credit" : "credits"} remaining
               </p>
             )}
             {!isAuthenticated && (
-              <p className="text-sm text-muted-foreground">
-                You can submit up to <span className="font-bold text-foreground">3 projects</span> without an account.
+              <p className="text-xs text-muted-foreground">
+                Up to 3 projects without an account
               </p>
             )}
           </div>
 
-          <Card className="glass-card p-8">
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Main URL Input */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Project URL *</label>
+          <Card className="glass-card p-6">
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Project URL</label>
                 <div className="relative">
-                  <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                  <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     type="url"
-                    placeholder="https://your-awesome-project.com"
+                    placeholder="https://your-project.com"
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    className="pl-10 h-14 text-lg rounded-xl"
+                    className="pl-10 h-12 text-base"
                     required
                     autoFocus
                   />
                 </div>
               </div>
 
-              {/* Toggle Optional Fields */}
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowOptional(!showOptional)}
-                className="text-muted-foreground"
+                className="text-muted-foreground text-xs"
               >
                 {showOptional ? "Hide" : "Show"} optional details
               </Button>
@@ -137,37 +135,36 @@ export default function Submit() {
                   animate={{ opacity: 1, height: "auto" }}
                   className="space-y-4"
                 >
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <label className="text-sm font-medium">Project Name</label>
                     <Input
                       placeholder="My Awesome Project"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      className="rounded-xl"
                     />
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <label className="text-sm font-medium">Short Description</label>
                     <Textarea
                       placeholder="A brief description of what your project does..."
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
-                      className="rounded-xl resize-none"
+                      className="resize-none"
                       maxLength={300}
                       rows={3}
                     />
                     <p className="text-xs text-muted-foreground text-right">{description.length}/300</p>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <label className="text-sm font-medium">Categories</label>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-1.5">
                       {categories?.map((cat) => (
                         <Badge
                           key={cat.id}
                           variant={selectedCategories.includes(cat.id) ? "default" : "outline"}
-                          className="cursor-pointer px-3 py-1.5 text-xs rounded-full transition-all hover:scale-105"
+                          className="cursor-pointer px-2.5 py-1 text-xs rounded-md transition-colors"
                           onClick={() => toggleCategory(cat.id)}
                         >
                           {selectedCategories.includes(cat.id) && <Check className="w-3 h-3 mr-1" />}
@@ -182,31 +179,30 @@ export default function Submit() {
               <Button
                 type="submit"
                 size="lg"
-                className="w-full h-14 text-lg rounded-xl bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-all shadow-lg shadow-primary/25 group"
+                className="w-full h-12 group"
                 disabled={submitMutation.isPending}
               >
                 {submitMutation.isPending ? "Submitting..." : "Submit Project"}
-                <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
               </Button>
             </form>
           </Card>
 
-          {/* Template Info */}
-          <Card className="glass-card p-6">
+          <Card className="glass-card p-5">
             <div className="flex items-start gap-3">
-              <Info className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-              <div className="space-y-2">
-                <h3 className="font-bold text-sm">Want full control over your project page?</h3>
-                <p className="text-sm text-muted-foreground">
-                  Add a <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">vibe-index.json</code> file
-                  to the root of your website. We'll automatically read it to generate your project's landing page.
+              <Info className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+              <div className="space-y-1.5">
+                <h3 className="font-medium text-sm">Full control over your listing</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Add a <code className="text-xs bg-muted px-1 py-0.5 rounded font-mono">vibe-index.json</code> file
+                  to your site root. We'll read it to generate your project page.
                 </p>
-                <details className="text-sm">
-                  <summary className="cursor-pointer text-primary font-medium flex items-center gap-1">
-                    <FileText className="w-4 h-4" />
-                    View template format
+                <details className="text-xs">
+                  <summary className="cursor-pointer font-medium flex items-center gap-1 mt-1">
+                    <FileText className="w-3.5 h-3.5" />
+                    View template
                   </summary>
-                  <pre className="mt-3 p-4 bg-muted rounded-xl text-xs overflow-x-auto font-mono">
+                  <pre className="mt-2 p-3 bg-muted rounded-lg text-[11px] overflow-x-auto font-mono">
 {`{
   "name": "My Project",
   "description": "A short description",
