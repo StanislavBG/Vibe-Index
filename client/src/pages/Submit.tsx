@@ -1,16 +1,20 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link2, ArrowRight, Info, FileText, UserPlus } from "lucide-react";
+import { Link2, ArrowRight, Info, FileText, UserPlus, ExternalLink, Loader2, Check, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Navbar } from "@/components/Navbar";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
 import { JobProgress } from "@/components/JobProgress";
-import { useSubmitProject } from "@/hooks/use-projects";
+import { useSubmitProject, type Project, type Job } from "@/hooks/use-projects";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
+
+type ProjectWithJob = Project & { job: Job | null };
 
 export default function Submit() {
   const [, navigate] = useLocation();
@@ -20,6 +24,18 @@ export default function Submit() {
 
   const [url, setUrl] = useState("");
   const [activeJob, setActiveJob] = useState<{ jobId: number; projectId: number } | null>(null);
+
+  // Fetch user's existing projects when logged in
+  const { data: myProjects } = useQuery<ProjectWithJob[]>({
+    queryKey: ["/api/my-projects"],
+    enabled: isAuthenticated,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      const hasRunning = data.some((p) => p.job && (p.job.status === "queued" || p.job.status === "running"));
+      return hasRunning ? 3000 : false;
+    },
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,6 +72,9 @@ export default function Submit() {
   const creditsRemaining = isAuthenticated
     ? (user?.freeListingsRemaining ?? 0) + (user?.paidListingCredits ?? 0)
     : null;
+
+  const activeProjects = myProjects?.filter((p) => p.status === "active") ?? [];
+  const pendingProjects = myProjects?.filter((p) => p.status === "pending") ?? [];
 
   return (
     <div className="min-h-screen w-full relative">
@@ -128,6 +147,72 @@ export default function Submit() {
                     </Button>
                   </form>
                 </Card>
+
+                {/* Your projects section for logged-in users */}
+                {isAuthenticated && myProjects && myProjects.length > 0 && (
+                  <Card className="glass-card p-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold text-sm">Your Projects</h3>
+                      <Link href="/dashboard" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                        Manage all
+                      </Link>
+                    </div>
+
+                    <div className="space-y-2">
+                      {pendingProjects.map((project) => (
+                        <div key={project.id} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium truncate">
+                                {project.name || new URL(project.url).hostname.replace("www.", "")}
+                              </span>
+                              <Badge variant="outline" className="text-[10px] rounded-md gap-1 animate-pulse flex-shrink-0">
+                                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                {project.job?.step === "fetching" ? "Fetching" :
+                                 project.job?.step === "analyzing" ? "Analyzing" :
+                                 project.job?.step === "categorizing" ? "Categorizing" :
+                                 "Processing"}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+
+                      {activeProjects.slice(0, 5).map((project) => (
+                        <div key={project.id} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium truncate">
+                                {project.name || new URL(project.url).hostname.replace("www.", "")}
+                              </span>
+                              <Badge variant="secondary" className="text-[10px] rounded-md gap-1 flex-shrink-0">
+                                <Check className="w-2.5 h-2.5" />
+                                Live
+                              </Badge>
+                              <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                                {project.likesCount} likes
+                              </span>
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs px-2"
+                            onClick={() => navigate(`/project/${project.id}`)}
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+
+                      {activeProjects.length > 5 && (
+                        <Link href="/dashboard" className="block text-xs text-muted-foreground hover:text-foreground text-center pt-1 transition-colors">
+                          +{activeProjects.length - 5} more projects
+                        </Link>
+                      )}
+                    </div>
+                  </Card>
+                )}
 
                 {/* Ownership messaging for anonymous users */}
                 {!isAuthenticated && (

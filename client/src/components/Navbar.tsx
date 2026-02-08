@@ -2,12 +2,26 @@ import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { LogOut, User, Menu, X, Plus } from "lucide-react";
+import { LogOut, User, Menu, X } from "lucide-react";
 
 export function Navbar() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { user, isAuthenticated, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const navLink = (href: string, label: string) => {
+    const isActive = location === href || (href === "/" && location === "/");
+    return (
+      <Link
+        href={href}
+        className={`text-sm font-medium transition-colors ${
+          isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        {label}
+      </Link>
+    );
+  };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
@@ -18,14 +32,15 @@ export function Navbar() {
           </span>
         </Link>
 
-        {/* Desktop Nav */}
-        <div className="hidden md:flex items-center gap-4">
-          <Link href="/" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-            Discover
-          </Link>
-          <Link href="/submit" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-            Submit
-          </Link>
+        {/* Desktop Nav — three key flows */}
+        <div className="hidden md:flex items-center gap-6">
+          <div className="flex items-center gap-5">
+            {navLink("/", "Discover")}
+            {navLink("/submit", "Submit")}
+            {navLink("/subscribe", "Stay in the Loop")}
+          </div>
+
+          <div className="w-px h-5 bg-border" />
 
           {isAuthenticated ? (
             <div className="flex items-center gap-3">
@@ -36,7 +51,7 @@ export function Navbar() {
                 </Button>
               </Link>
               <div className="text-xs text-muted-foreground">
-                {(user?.freeListingsRemaining ?? 0) + (user?.paidListingCredits ?? 0)} credits | {user?.likesRemaining ?? 0} likes
+                {(user?.freeListingsRemaining ?? 0) + (user?.paidListingCredits ?? 0)} credits
               </div>
               <Button
                 variant="ghost"
@@ -85,13 +100,18 @@ export function Navbar() {
             Discover
           </Link>
           <Link href="/submit" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
-            Submit Project
+            Submit
+          </Link>
+          <Link href="/subscribe" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
+            Stay in the Loop
           </Link>
           {isAuthenticated ? (
             <>
-              <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
-                Dashboard
-              </Link>
+              <div className="border-t border-border/50 pt-3">
+                <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
+                  Dashboard
+                </Link>
+              </div>
               <Button
                 variant="ghost"
                 size="sm"
@@ -103,7 +123,7 @@ export function Navbar() {
               </Button>
             </>
           ) : (
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-2 pt-2 border-t border-border/50">
               <Button
                 variant="outline"
                 size="sm"

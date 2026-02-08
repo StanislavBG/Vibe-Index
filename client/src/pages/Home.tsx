@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
 import { motion } from "framer-motion";
-import { ArrowRight, Search, TrendingUp, Clock, Filter } from "lucide-react";
+import { ArrowRight, Search, TrendingUp, Clock, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { useProjects, useCategories } from "@/hooks/use-projects";
 import { ProjectCard } from "@/components/ProjectCard";
 import { Navbar } from "@/components/Navbar";
-import { SubscribeSection } from "@/components/SubscribeSection";
 
 export default function Home() {
   const [, navigate] = useLocation();
@@ -202,8 +201,31 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Subscribe Section */}
-      <SubscribeSection />
+      {/* Subscribe CTA */}
+      <section className="px-4 py-16">
+        <div className="max-w-3xl mx-auto">
+          <Card className="glass-card p-8 md:p-10 flex flex-col md:flex-row items-center gap-6">
+            <div className="flex-1 text-center md:text-left">
+              <div className="flex items-center gap-2 justify-center md:justify-start mb-2">
+                <Bell className="w-5 h-5 text-muted-foreground" />
+                <h2 className="text-xl font-bold">Stay in the Loop</h2>
+              </div>
+              <p className="text-sm text-muted-foreground max-w-md">
+                Get AI-curated digests of new projects matched to your interests.
+                Choose your frequency, pick your categories, no spam ever.
+              </p>
+            </div>
+            <Button
+              onClick={() => navigate("/subscribe")}
+              size="lg"
+              className="gap-2 group flex-shrink-0"
+            >
+              Set Up Your Digest
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+            </Button>
+          </Card>
+        </div>
+      </section>
 
       {/* Footer */}
       <footer className="border-t border-border py-8 px-4">
