@@ -29,7 +29,7 @@ Preferred communication style: Simple, everyday language.
 ### Backend
 - **Framework:** Express 5 on Node.js with TypeScript (run via `tsx`)
 - **API Pattern:** RESTful JSON API under `/api/` prefix
-- **Authentication:** Passport.js with local strategy (username/password), express-session with PostgreSQL session store (`connect-pg-simple`), scrypt password hashing
+- **Authentication:** Clerk (`@clerk/express` middleware on backend, `@clerk/clerk-react` on frontend). Users are synced to a local `users` table via `clerkId` column.
 - **Validation:** Zod schemas (shared between client and server via `shared/schema.ts`)
 - **Build:** Custom build script using esbuild for server bundling + Vite for client, outputs to `dist/`
 
@@ -38,10 +38,10 @@ Preferred communication style: Simple, everyday language.
 - **ORM:** Drizzle ORM with PostgreSQL dialect
 - **Schema Location:** `shared/schema.ts` — shared between frontend and backend
 - **Migrations:** Drizzle Kit with `db:push` command (push-based, no migration files needed for dev)
-- **Session Storage:** PostgreSQL via `connect-pg-simple` (auto-creates table)
+- **Session Storage:** Managed by Clerk (JWT-based, no server-side sessions)
 
 **Core database tables:**
-- `users` — accounts with username, email, password, free listing credits (default 3), paid credits, likes remaining (default 10)
+- `users` — accounts with clerkId (links to Clerk user), username, email, free listing credits (default 3), paid credits, likes remaining (default 10)
 - `projects` — submitted projects with URL, metadata, pricing model, likes count, owner reference, status, anonymous token support
 - `categories` — predefined project categories (seeded on startup with 12 defaults like AI/ML, Web Apps, Games, etc.)
 - `project_categories` — many-to-many join table
@@ -69,13 +69,15 @@ Preferred communication style: Simple, everyday language.
 
 ### Environment Variables
 - `DATABASE_URL` — PostgreSQL connection string (required, will throw on startup if missing)
-- `SESSION_SECRET` — Session encryption key (falls back to a default if not set)
+- `CLERK_SECRET_KEY` — Clerk secret key for backend API (required)
+- `CLERK_PUBLISHABLE_KEY` — Clerk publishable key for backend middleware (required)
+- `VITE_CLERK_PUBLISHABLE_KEY` — Clerk publishable key for frontend (required)
 
 ### Key NPM Packages
 - `drizzle-orm` + `drizzle-kit` + `drizzle-zod` — ORM, migrations, schema validation
 - `express` v5 — HTTP server
-- `passport` + `passport-local` — Authentication
-- `connect-pg-simple` — PostgreSQL session store
+- `@clerk/clerk-react` — Frontend authentication (ClerkProvider, SignIn, SignUp, UserButton, hooks)
+- `@clerk/express` — Backend authentication middleware (clerkMiddleware, getAuth, requireAuth)
 - `@tanstack/react-query` — Client-side data fetching
 - `framer-motion` — Animations
 - `wouter` — Client-side routing

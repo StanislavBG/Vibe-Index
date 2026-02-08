@@ -18,7 +18,7 @@ export function SignInPage() {
             routing="path"
             path="/login"
             signUpUrl="/register"
-            afterSignInUrl="/"
+            fallbackRedirectUrl="/"
             data-testid="clerk-sign-in"
           />
         </motion.div>
@@ -42,7 +42,7 @@ export function SignUpPage() {
             routing="path"
             path="/register"
             signInUrl="/login"
-            afterSignUpUrl="/"
+            fallbackRedirectUrl="/"
             data-testid="clerk-sign-up"
           />
         </motion.div>
