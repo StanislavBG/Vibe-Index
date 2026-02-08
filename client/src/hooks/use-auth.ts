@@ -1,9 +1,9 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
-import { queryClient } from "@/lib/queryClient";
+import { useUser, useAuth as useClerkAuth } from "@clerk/clerk-react";
+import { useQuery } from "@tanstack/react-query";
 
 export interface AuthUser {
   id: number;
+  clerkId: string;
   username: string;
   email: string;
   freeListingsRemaining: number;
@@ -14,7 +14,10 @@ export interface AuthUser {
 }
 
 export function useAuth() {
-  const { data: user, isLoading, error } = useQuery<AuthUser | null>({
+  const { isSignedIn, isLoaded } = useClerkAuth();
+  const { user: clerkUser } = useUser();
+
+  const { data: dbUser, isLoading: dbLoading } = useQuery<AuthUser | null>({
     queryKey: ["/api/auth/me"],
     queryFn: async () => {
       try {
@@ -26,45 +29,14 @@ export function useAuth() {
         return null;
       }
     },
+    enabled: !!isSignedIn,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
 
-  const loginMutation = useMutation({
-    mutationFn: async (data: { username: string; password: string }) => {
-      const res = await apiRequest("POST", "/api/auth/login", data);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-    },
-  });
-
-  const registerMutation = useMutation({
-    mutationFn: async (data: { username: string; email: string; password: string }) => {
-      const res = await apiRequest("POST", "/api/auth/register", data);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-    },
-  });
-
-  const logoutMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/auth/logout");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-    },
-  });
-
   return {
-    user: user ?? null,
-    isLoading,
-    isAuthenticated: !!user,
-    login: loginMutation,
-    register: registerMutation,
-    logout: logoutMutation,
+    user: dbUser ?? null,
+    isLoading: !isLoaded || (isSignedIn && dbLoading),
+    isAuthenticated: !!isSignedIn && !!dbUser,
   };
 }

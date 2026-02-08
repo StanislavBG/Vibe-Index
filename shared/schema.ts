@@ -6,9 +6,9 @@ import { z } from "zod";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
+  clerkId: text("clerk_id").notNull().unique(),
   username: text("username").notNull().unique(),
   email: text("email").notNull().unique(),
-  password: text("password").notNull(),
   freeListingsRemaining: integer("free_listings_remaining").notNull().default(3),
   paidListingCredits: integer("paid_listing_credits").notNull().default(0),
   likesRemaining: integer("likes_remaining").notNull().default(10),
@@ -177,16 +177,6 @@ export const insertCommentSchema = createInsertSchema(comments).omit({ id: true,
 export const insertSocialShareSchema = createInsertSchema(socialShares).omit({ id: true, createdAt: true, verifiedAt: true });
 
 // === CUSTOM VALIDATION SCHEMAS ===
-export const registerUserSchema = z.object({
-  username: z.string().min(3).max(30),
-  email: z.string().email(),
-  password: z.string().min(6),
-});
-
-export const loginUserSchema = z.object({
-  username: z.string(),
-  password: z.string(),
-});
 
 export const submitProjectSchema = z.object({
   url: z.string().url(),

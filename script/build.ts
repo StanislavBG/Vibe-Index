@@ -1,28 +1,26 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 import { rm, readFile } from "fs/promises";
+import { execSync } from "child_process";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
 const allowlist = [
+  "@clerk/express",
+  "@clerk/backend",
   "@google/generative-ai",
   "axios",
-  "connect-pg-simple",
   "cors",
   "date-fns",
   "drizzle-orm",
   "drizzle-zod",
   "express",
   "express-rate-limit",
-  "express-session",
   "jsonwebtoken",
-  "memorystore",
   "multer",
   "nanoid",
   "nodemailer",
   "openai",
-  "passport",
-  "passport-local",
   "pg",
   "stripe",
   "uuid",
@@ -34,6 +32,9 @@ const allowlist = [
 
 async function buildAll() {
   await rm("dist", { recursive: true, force: true });
+
+  console.log("pushing database schema...");
+  execSync("npx drizzle-kit push", { stdio: "inherit" });
 
   console.log("building client...");
   await viteBuild();

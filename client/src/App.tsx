@@ -9,7 +9,7 @@ import Submit from "@/pages/Submit";
 import Subscribe from "@/pages/Subscribe";
 import ProjectDetail from "@/pages/ProjectDetail";
 import Dashboard from "@/pages/Dashboard";
-import { LoginPage, RegisterPage } from "@/pages/Auth";
+import { SignInPage, SignUpPage } from "@/pages/Auth";
 
 function Router() {
   return (
@@ -19,8 +19,8 @@ function Router() {
       <Route path="/subscribe" component={Subscribe} />
       <Route path="/project/:id" component={ProjectDetail} />
       <Route path="/dashboard" component={Dashboard} />
-      <Route path="/login" component={LoginPage} />
-      <Route path="/register" component={RegisterPage} />
+      <Route path="/login" component={SignInPage} />
+      <Route path="/register" component={SignUpPage} />
       <Route component={NotFound} />
     </Switch>
   );

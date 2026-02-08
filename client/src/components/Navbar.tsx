@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation, Link } from "wouter";
+import { SignedIn, SignedOut, UserButton } from "@clerk/clerk-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, type NotificationData } from "@/hooks/use-projects";
@@ -138,7 +139,7 @@ export function Navbar() {
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
-      <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+      <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
         <Link href="/" className="flex items-center gap-2">
           <span className="text-base font-bold tracking-tight">
             Vibe Index
@@ -158,9 +159,8 @@ export function Navbar() {
           {isAuthenticated ? (
             <div className="flex items-center gap-2">
               <Link href="/dashboard">
-                <Button variant="ghost" size="sm" className="gap-2">
-                  <User className="w-4 h-4" />
-                  {user?.username}
+                <Button variant="ghost" size="sm" data-testid="link-dashboard">
+                  Dashboard
                 </Button>
               </Link>
               <div className="text-xs text-muted-foreground">
@@ -176,12 +176,15 @@ export function Navbar() {
                 <LogOut className="w-4 h-4" />
               </Button>
             </div>
-          ) : (
+          </SignedIn>
+
+          <SignedOut>
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => navigate("/login")}
+                data-testid="button-login"
               >
                 Log in
               </Button>
@@ -189,25 +192,25 @@ export function Navbar() {
                 size="sm"
                 onClick={() => navigate("/register")}
                 className="rounded-lg"
+                data-testid="button-signup"
               >
                 Sign up
               </Button>
             </div>
-          )}
+          </SignedOut>
         </div>
 
-        {/* Mobile Menu Toggle */}
         <Button
           variant="ghost"
           size="sm"
           className="md:hidden"
           onClick={() => setMenuOpen(!menuOpen)}
+          data-testid="button-mobile-menu"
         >
           {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </Button>
       </div>
 
-      {/* Mobile Menu */}
       {menuOpen && (
         <div className="md:hidden border-t border-border/50 bg-background/95 backdrop-blur-xl p-4 space-y-3">
           <Link href="/" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
@@ -254,7 +257,7 @@ export function Navbar() {
                 Sign up
               </Button>
             </div>
-          )}
+          </SignedOut>
         </div>
       )}
     </nav>

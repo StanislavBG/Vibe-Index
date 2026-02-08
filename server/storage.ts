@@ -13,9 +13,11 @@ import { eq, and, ilike, or, sql, desc, asc, count } from "drizzle-orm";
 export interface IStorage {
   // Users
   getUser(id: number): Promise<User | undefined>;
+  getUserByClerkId(clerkId: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  upsertUserFromClerk(clerkId: string, username: string, email: string): Promise<User>;
   updateUserCredits(id: number, updates: Partial<Pick<User, "freeListingsRemaining" | "paidListingCredits" | "likesRemaining">>): Promise<User | undefined>;
 
   // Projects
@@ -99,6 +101,11 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async getUserByClerkId(clerkId: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.clerkId, clerkId));
+    return user;
+  }
+
   async getUserByUsername(username: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.username, username));
     return user;
@@ -112,6 +119,21 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
+  }
+
+  async upsertUserFromClerk(clerkId: string, username: string, email: string): Promise<User> {
+    const existing = await this.getUserByClerkId(clerkId);
+    if (existing) {
+      const [updated] = await db.update(users)
+        .set({ username, email })
+        .where(eq(users.clerkId, clerkId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(users)
+      .values({ clerkId, username, email })
+      .returning();
+    return created;
   }
 
   async updateUserCredits(id: number, updates: Partial<Pick<User, "freeListingsRemaining" | "paidListingCredits" | "likesRemaining">>): Promise<User | undefined> {
