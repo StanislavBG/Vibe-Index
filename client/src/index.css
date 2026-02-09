@@ -81,4 +81,13 @@
   .glass-card {
     @apply bg-white dark:bg-neutral-900 border border-border shadow-sm;
   }
+
+  /* Hide scrollbar for horizontal-scroll category filters on mobile */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
