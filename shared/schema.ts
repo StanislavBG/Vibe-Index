@@ -163,12 +163,33 @@ export const notifications = pgTable("notifications", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Email send log — one row per recipient per digest
+export const emailSends = pgTable("email_sends", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  subject: text("subject").notNull(),
+  status: text("status").notNull().default("queued"), // queued, sent, failed
+  frequency: text("frequency"), // daily, weekly, monthly — which trigger sent this
+  projectIds: text("project_ids"), // JSON array of project IDs included
+  error: text("error"),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// One-click unsubscribe tokens (one per user)
+export const unsubscribeTokens = pgTable("unsubscribe_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
+  token: text("token").notNull().unique(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // === BASE SCHEMAS ===
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, likesCount: true, createdAt: true, updatedAt: true });
 export const insertCategorySchema = createInsertSchema(categories).omit({ id: true, createdAt: true });
 export const insertLikeSchema = createInsertSchema(likes).omit({ id: true, createdAt: true });
-export const insertCategorySubscriptionSchema = createInsertSchema(categorySubscriptions).omit({ id: true, verified: true, createdAt: true });
+export const insertCategorySubscriptionSchema = createInsertSchema(categorySubscriptions).omit({ id: true, createdAt: true });
 export const insertAnonymousSubmissionSchema = createInsertSchema(anonymousSubmissions).omit({ id: true, createdAt: true });
 export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertNewsletterPreferencesSchema = createInsertSchema(newsletterPreferences).omit({ id: true, createdAt: true, updatedAt: true });
@@ -216,3 +237,5 @@ export type ProjectFollow = typeof projectFollows.$inferSelect;
 export type SocialShare = typeof socialShares.$inferSelect;
 export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
+export type EmailSend = typeof emailSends.$inferSelect;
+export type UnsubscribeToken = typeof unsubscribeTokens.$inferSelect;
