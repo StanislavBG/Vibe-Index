@@ -181,106 +181,103 @@ export default function Home() {
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       <BackgroundEffect />
-      <Navbar />
-
-      {/* ── HEADER: Search + Sort + Categories ─────────────────────── */}
-      <div className="pt-16 flex-shrink-0 border-b border-border/50 bg-background/80 backdrop-blur-sm">
-        {/* Row 1: Search bar + voice + sort controls */}
-        <div className="px-4 lg:px-6 py-2.5">
-          <div className="flex items-center gap-3">
-            {/* Branding pill */}
-            <div className="flex-shrink-0 hidden sm:flex items-center gap-2 pr-3 border-r border-border">
-              <div>
-                <h1 className="text-sm font-bold leading-tight tracking-tight">Vibe Index</h1>
-                <p className="text-[10px] text-muted-foreground leading-tight">
-                  Community project directory
-                </p>
-              </div>
+      <Navbar>
+        <div className="flex items-center gap-3">
+          {/* Branding pill */}
+          <div className="flex-shrink-0 hidden sm:flex items-center gap-2 pr-3 border-r border-border">
+            <div>
+              <h1 className="text-sm font-bold leading-tight tracking-tight">Vibe Index</h1>
+              <p className="text-[10px] text-muted-foreground leading-tight">
+                Community project directory
+              </p>
             </div>
+          </div>
 
-            {/* Search input + voice */}
-            <div className="flex-1 flex gap-2 min-w-0">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search projects by name, description, or topic..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-10 pr-10 h-10 text-sm"
-                />
-                {search && (
-                  <button
-                    onClick={clearSearch}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-              <button
-                onClick={isRecording ? stopRecording : startRecording}
-                disabled={voiceSearch.isPending}
-                className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-all border ${
-                  isRecording
-                    ? "bg-destructive text-destructive-foreground border-destructive animate-pulse"
-                    : voiceSearch.isPending
-                      ? "bg-muted border-border"
-                      : "bg-background border-border hover:border-foreground/30 hover:bg-muted"
-                }`}
-                title={isRecording ? "Stop recording" : "Voice search"}
+          {/* Search input + voice */}
+          <div className="flex-1 flex gap-2 min-w-0">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search projects by name, description, or topic..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10 pr-10 h-10 text-sm"
+              />
+              {search && (
+                <button
+                  onClick={clearSearch}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              disabled={voiceSearch.isPending}
+              className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-all border ${
+                isRecording
+                  ? "bg-destructive text-destructive-foreground border-destructive animate-pulse"
+                  : voiceSearch.isPending
+                    ? "bg-muted border-border"
+                    : "bg-background border-border hover:border-foreground/30 hover:bg-muted"
+              }`}
+              title={isRecording ? "Stop recording" : "Voice search"}
+            >
+              {voiceSearch.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : isRecording ? (
+                <MicOff className="w-4 h-4" />
+              ) : (
+                <Mic className="w-4 h-4" />
+              )}
+            </button>
+          </div>
+
+          {/* Sort controls + project count */}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <span className="text-[11px] text-muted-foreground mr-1.5 hidden lg:inline tabular-nums">
+              {projectsData?.total || 0} projects
+            </span>
+            <div className="flex items-center border border-border rounded-lg overflow-hidden">
+              {isSearching && (
+                <Button
+                  variant={effectiveSort === "relevance" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 text-xs px-2.5 rounded-none border-0"
+                  onClick={() => setSortBy("relevance")}
+                >
+                  <Sparkles className="w-3 h-3 mr-1" />
+                  Best
+                </Button>
+              )}
+              <Button
+                variant={sortBy === "popular" && !isSearching ? "secondary" : "ghost"}
+                size="sm"
+                className="h-8 text-xs px-2.5 rounded-none border-0"
+                onClick={() => setSortBy("popular")}
               >
-                {voiceSearch.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : isRecording ? (
-                  <MicOff className="w-4 h-4" />
-                ) : (
-                  <Mic className="w-4 h-4" />
-                )}
-              </button>
-            </div>
-
-            {/* Sort controls + project count */}
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <span className="text-[11px] text-muted-foreground mr-1.5 hidden lg:inline tabular-nums">
-                {projectsData?.total || 0} projects
-              </span>
-              <div className="flex items-center border border-border rounded-lg overflow-hidden">
-                {isSearching && (
-                  <Button
-                    variant={effectiveSort === "relevance" ? "secondary" : "ghost"}
-                    size="sm"
-                    className="h-8 text-xs px-2.5 rounded-none border-0"
-                    onClick={() => setSortBy("relevance")}
-                  >
-                    <Sparkles className="w-3 h-3 mr-1" />
-                    Best
-                  </Button>
-                )}
-                <Button
-                  variant={sortBy === "popular" && !isSearching ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-8 text-xs px-2.5 rounded-none border-0"
-                  onClick={() => setSortBy("popular")}
-                >
-                  <TrendingUp className="w-3 h-3 mr-1" />
-                  Top
-                </Button>
-                <Button
-                  variant={sortBy === "newest" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-8 text-xs px-2.5 rounded-none border-0"
-                  onClick={() => setSortBy("newest")}
-                >
-                  <Clock className="w-3 h-3 mr-1" />
-                  New
-                </Button>
-              </div>
+                <TrendingUp className="w-3 h-3 mr-1" />
+                Top
+              </Button>
+              <Button
+                variant={sortBy === "newest" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-8 text-xs px-2.5 rounded-none border-0"
+                onClick={() => setSortBy("newest")}
+              >
+                <Clock className="w-3 h-3 mr-1" />
+                New
+              </Button>
             </div>
           </div>
         </div>
+      </Navbar>
 
-        {/* Row 2: Category filter pills */}
-        <div className="px-4 lg:px-6 pb-2.5 flex items-center gap-2">
+      {/* ── HEADER: Categories ─────────────────────────────────────── */}
+      <div className="pt-16 flex-shrink-0 border-b border-border/50 bg-background/80 backdrop-blur-sm">
+        {/* Category filter pills */}
+        <div className="px-4 lg:px-6 py-2.5 flex items-center gap-2">
           <div className="flex flex-wrap gap-1.5">
             <Badge
               variant={!selectedCategory ? "default" : "outline"}

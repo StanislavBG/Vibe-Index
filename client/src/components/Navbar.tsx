@@ -105,7 +105,7 @@ function NotificationBell() {
   );
 }
 
-export function Navbar() {
+export function Navbar({ children }: { children?: React.ReactNode }) {
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -126,15 +126,19 @@ export function Navbar() {
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
-      <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
-        <Link href="/" className="flex items-center gap-2">
-          <span className="text-base font-bold tracking-tight">
-            Vibe Index
-          </span>
-        </Link>
+      <div className={`mx-auto px-4 lg:px-6 h-16 flex items-center gap-4 ${children ? '' : 'max-w-6xl justify-between'}`}>
+        {children ? (
+          <div className="flex-1 min-w-0">{children}</div>
+        ) : (
+          <Link href="/" className="flex items-center gap-2">
+            <span className="text-base font-bold tracking-tight">
+              Vibe Index
+            </span>
+          </Link>
+        )}
 
         {/* Desktop Nav — three key flows */}
-        <div className="hidden md:flex items-center gap-6">
+        <div className="hidden md:flex items-center gap-6 flex-shrink-0">
           <div className="flex items-center gap-5">
             {navLink("/", "Discover")}
             {navLink("/submit", "Submit")}
