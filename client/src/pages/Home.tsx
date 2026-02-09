@@ -274,14 +274,26 @@ export default function Home() {
         </div>
       </Navbar>
 
-      {/* ── HEADER: Categories ─────────────────────────────────────── */}
+      {/* ── HEADER: Hero + Categories ────────────────────────────────── */}
       <div className="pt-16 flex-shrink-0 border-b border-border/50 bg-background/80 backdrop-blur-sm">
-        {/* Category filter pills */}
+        {/* Hero banner for first-time context */}
+        {!isSearching && !selectedCategory && (
+          <div className="px-4 lg:px-6 pt-3 pb-1">
+            <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
+              Discover community-built projects, get inspired, and share your own work.{" "}
+              <span className="hidden sm:inline">
+                Browse by category, search by topic, or submit a project in under a minute.
+              </span>
+            </p>
+          </div>
+        )}
+
+        {/* Category filter pills — horizontal scroll on mobile, wrap on desktop */}
         <div className="px-4 lg:px-6 py-2.5 flex items-center gap-2">
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide sm:flex-wrap sm:overflow-visible pb-1 sm:pb-0 -mb-1 sm:mb-0">
             <Badge
               variant={!selectedCategory ? "default" : "outline"}
-              className="cursor-pointer px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors"
+              className="cursor-pointer px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors flex-shrink-0"
               onClick={() => setSelectedCategory(undefined)}
             >
               All
@@ -290,7 +302,7 @@ export default function Home() {
               <Badge
                 key={cat.id}
                 variant={selectedCategory === cat.id ? "default" : "outline"}
-                className="cursor-pointer px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors"
+                className="cursor-pointer px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors flex-shrink-0"
                 onClick={() =>
                   setSelectedCategory(
                     selectedCategory === cat.id ? undefined : cat.id
@@ -338,8 +350,11 @@ export default function Home() {
                 ) : (
                   <>
                     <h3 className="text-base font-semibold mb-1">No projects yet</h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Be the first to submit a vibe-coded project.
+                    <p className="text-sm text-muted-foreground mb-2">
+                      Be the first to share a project with the community.
+                    </p>
+                    <p className="text-xs text-muted-foreground mb-4">
+                      Paste a link and our AI builds your listing automatically — no account required.
                     </p>
                     <Button size="sm" onClick={() => navigate("/submit")}>
                       Submit a Project
@@ -373,12 +388,14 @@ export default function Home() {
                 <Send className="w-3.5 h-3.5" />
               </div>
               <h3 className="font-bold text-xs uppercase tracking-widest">
-                Submit
+                Submit a Project
               </h3>
             </div>
-            <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
-              Drop a link — our AI builds your listing. Review and publish in
-              under a minute.
+            <p className="text-[11px] text-muted-foreground mb-1 leading-relaxed">
+              Paste a link and our AI analyzes your site, writes the listing, and picks the right category.
+            </p>
+            <p className="text-[11px] font-medium text-foreground/70 mb-3">
+              3 free listings — no account needed.
             </p>
             <form onSubmit={handleQuickSubmit} className="space-y-2">
               <Input
@@ -392,40 +409,66 @@ export default function Home() {
                 type="submit"
                 className="w-full h-10 text-xs font-bold gap-2 group"
               >
-                Submit Your Project
+                Analyze & Submit
                 <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
               </Button>
             </form>
-            <p className="text-[10px] text-muted-foreground mt-2 text-center">
-              3 free listings — no account needed
-            </p>
+            {/* Process steps preview */}
+            <div className="mt-3 flex items-center gap-2 text-[10px] text-muted-foreground justify-center">
+              <span>Paste link</span>
+              <ArrowRight className="w-2.5 h-2.5" />
+              <span>AI analyzes</span>
+              <ArrowRight className="w-2.5 h-2.5" />
+              <span>You review</span>
+              <ArrowRight className="w-2.5 h-2.5" />
+              <span>Published</span>
+            </div>
           </div>
 
-          {/* ── STAY IN THE LOOP Panel ────────────────────────────── */}
+          {/* ── GET PROJECT UPDATES Panel ──────────────────────────── */}
           <div className="p-4 flex-1 flex flex-col">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-6 h-6 rounded-md bg-foreground text-background flex items-center justify-center">
                 <Bell className="w-3.5 h-3.5" />
               </div>
               <h3 className="font-bold text-xs uppercase tracking-widest">
-                Stay in the Loop
+                Project Updates
               </h3>
             </div>
+            <p className="text-[11px] text-muted-foreground mb-1 leading-relaxed">
+              Get a personalized email digest of new projects in the categories you pick.
+            </p>
             <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
-              AI-curated weekly digests of new projects matched to your
-              interests. Zero spam.
+              AI-curated summaries, delivered on your schedule. One-click unsubscribe.
             </p>
 
             {!isAuthenticated ? (
               <div className="space-y-3 flex-1 flex flex-col">
-                <p className="text-[10px] text-muted-foreground">
-                  Sign in to set up your personalized digest.
-                </p>
+                {/* What you'll get — preview value before requiring sign-up */}
+                <div className="rounded-md border border-border/50 p-2.5 space-y-1.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    What you'll get
+                  </p>
+                  <ul className="text-[11px] text-muted-foreground space-y-1">
+                    <li className="flex items-start gap-1.5">
+                      <Check className="w-3 h-3 mt-0.5 flex-shrink-0 text-foreground/50" />
+                      New projects in your chosen categories
+                    </li>
+                    <li className="flex items-start gap-1.5">
+                      <Check className="w-3 h-3 mt-0.5 flex-shrink-0 text-foreground/50" />
+                      AI-written summaries tailored to your interests
+                    </li>
+                    <li className="flex items-start gap-1.5">
+                      <Check className="w-3 h-3 mt-0.5 flex-shrink-0 text-foreground/50" />
+                      Choose daily, weekly, or monthly delivery
+                    </li>
+                  </ul>
+                </div>
                 <Button
                   className="w-full h-10 text-xs font-bold gap-2 group"
                   onClick={() => navigate("/register")}
                 >
-                  Sign up for Digest
+                  Sign up to Subscribe
                   <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                 </Button>
                 <button
@@ -441,7 +484,7 @@ export default function Home() {
                 {/* Category picks */}
                 <div>
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                    Categories
+                    Pick categories to follow
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {categoriesData?.map((cat) => (
@@ -469,7 +512,7 @@ export default function Home() {
                 >
                   {subscribeMutation.isPending
                     ? "Subscribing..."
-                    : "Subscribe to Digest"}
+                    : "Subscribe to Weekly Digest"}
                   <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                 </Button>
 
@@ -487,24 +530,29 @@ export default function Home() {
       </div>
 
       {/* ── MOBILE: Sticky bottom bar with both CTAs ───────────────── */}
-      <div className="lg:hidden flex-shrink-0 border-t border-border bg-background/95 backdrop-blur-lg px-4 py-2 flex gap-2">
-        <Button
-          size="sm"
-          className="flex-1 h-10 text-xs gap-1.5 font-bold"
-          onClick={() => navigate("/submit")}
-        >
-          <Send className="w-3.5 h-3.5" />
-          Submit Project
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="flex-1 h-10 text-xs gap-1.5 font-bold"
-          onClick={() => navigate("/subscribe")}
-        >
-          <Bell className="w-3.5 h-3.5" />
-          Stay in the Loop
-        </Button>
+      <div className="lg:hidden flex-shrink-0 border-t border-border bg-background/95 backdrop-blur-lg px-4 py-2">
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            className="flex-1 h-10 text-xs gap-1.5 font-bold"
+            onClick={() => navigate("/submit")}
+          >
+            <Send className="w-3.5 h-3.5" />
+            Submit a Project
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1 h-10 text-xs gap-1.5 font-bold"
+            onClick={() => navigate("/subscribe")}
+          >
+            <Bell className="w-3.5 h-3.5" />
+            Get Updates
+          </Button>
+        </div>
+        <p className="text-[10px] text-muted-foreground text-center mt-1">
+          AI-powered submissions — no account needed
+        </p>
       </div>
     </div>
   );
