@@ -798,12 +798,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const stripe = await getUncachableStripeClient();
       const credits = PRICE_CREDIT_MAP[priceId];
 
+      const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
+      const host = req.get("host");
+      const baseUrl = `${protocol}://${host}`;
+
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
         line_items: [{ price: priceId, quantity: 1 }],
         mode: "payment",
-        success_url: `${req.protocol}://${req.get("host")}/dashboard?purchase=success&session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${req.protocol}://${req.get("host")}/dashboard?purchase=cancelled`,
+        success_url: `${baseUrl}/dashboard?purchase=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${baseUrl}/dashboard?purchase=cancelled`,
         metadata: {
           userId: String(user.id),
           credits: String(credits),
@@ -812,8 +816,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
 
       res.json({ url: session.url });
-    } catch (error) {
-      console.error("Checkout error:", error);
+    } catch (error: any) {
+      console.error("Checkout error:", error?.message || error);
+      console.error("Checkout error stack:", error?.stack);
       res.status(500).json({ message: "Failed to create checkout session" });
     }
   });
