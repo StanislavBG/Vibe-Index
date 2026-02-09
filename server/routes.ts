@@ -497,17 +497,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ==========================================
-  // SUBSCRIPTIONS — enhanced with preferences
+  // SUBSCRIPTIONS — user-based digest preferences
   // ==========================================
-  app.post("/api/subscribe", async (req, res) => {
+  app.post("/api/subscribe", requireAuth, syncClerkUser, async (req, res) => {
     try {
       const input = subscribeSchema.parse(req.body);
+      const user = req.dbUser!;
+
+      // Sync category subscriptions: remove old ones not in the new list, add new ones
+      const existing = await storage.getSubscriptions(user.id);
+      const existingCatIds = existing.map(s => s.categoryId);
+
+      // Remove categories no longer selected
+      for (const sub of existing) {
+        if (!input.categoryIds.includes(sub.categoryId)) {
+          await storage.unsubscribe(user.id, sub.categoryId);
+        }
+      }
+      // Add newly selected categories
       const results = [];
       for (const categoryId of input.categoryIds) {
-        const sub = await storage.subscribe(input.email, categoryId);
-        results.push(sub);
+        if (!existingCatIds.includes(categoryId)) {
+          const sub = await storage.subscribe(user.id, categoryId);
+          results.push(sub);
+        }
       }
-      await storage.upsertNewsletterPreference(input.email, {
+
+      await storage.upsertNewsletterPreference(user.id, {
         frequency: input.frequency || "weekly",
         interests: input.interests ? JSON.stringify(input.interests) : undefined,
         pricingFilter: input.pricingFilter || "all",
@@ -520,11 +536,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.delete("/api/subscribe", async (req, res) => {
-    const { email, categoryId } = req.body;
-    if (!email || !categoryId) return res.status(400).json({ message: "Email and categoryId required" });
-    await storage.unsubscribe(email, parseInt(categoryId));
+  app.delete("/api/subscribe", requireAuth, syncClerkUser, async (req, res) => {
+    const { categoryId } = req.body;
+    if (!categoryId) return res.status(400).json({ message: "categoryId required" });
+    await storage.unsubscribe(req.dbUser!.id, parseInt(categoryId));
     res.json({ message: "Unsubscribed" });
+  });
+
+  // Get current user's subscription preferences
+  app.get("/api/subscribe", requireAuth, syncClerkUser, async (req, res) => {
+    const user = req.dbUser!;
+    const subscriptions = await storage.getSubscriptions(user.id);
+    const preferences = await storage.getNewsletterPreference(user.id);
+    res.json({ subscriptions, preferences: preferences || null });
   });
 
   // ==========================================

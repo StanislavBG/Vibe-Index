@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Bell, Check, ChevronDown } from "lucide-react";
-import { useCategories, useSubscribe } from "@/hooks/use-projects";
+import { Bell, Check, ChevronDown, LogIn } from "lucide-react";
+import { useCategories, useSubscribe, useDigestPreferences } from "@/hooks/use-projects";
+import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 
 const FREQUENCIES = [
@@ -25,16 +26,39 @@ const INTEREST_SUGGESTIONS = [
 ];
 
 export function SubscribeSection() {
-  const [email, setEmail] = useState("");
+  const [, navigate] = useLocation();
+  const { user, isAuthenticated } = useAuth();
   const [selectedCategories, setSelectedCategories] = useState<number[]>([]);
   const [frequency, setFrequency] = useState("weekly");
   const [pricingFilter, setPricingFilter] = useState("all");
   const [interests, setInterests] = useState<string[]>([]);
   const [maxProjects, setMaxProjects] = useState(10);
   const [showPreferences, setShowPreferences] = useState(false);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
   const { data: categories } = useCategories();
+  const { data: existingPrefs } = useDigestPreferences();
   const subscribeMutation = useSubscribe();
   const { toast } = useToast();
+
+  // Load existing preferences
+  useEffect(() => {
+    if (existingPrefs && !prefsLoaded) {
+      if (existingPrefs.subscriptions.length > 0) {
+        setSelectedCategories(existingPrefs.subscriptions.map(s => s.categoryId));
+      }
+      if (existingPrefs.preferences) {
+        setFrequency(existingPrefs.preferences.frequency || "weekly");
+        setPricingFilter(existingPrefs.preferences.pricingFilter || "all");
+        setMaxProjects(existingPrefs.preferences.maxProjects || 10);
+        if (existingPrefs.preferences.interests) {
+          try {
+            setInterests(JSON.parse(existingPrefs.preferences.interests));
+          } catch { /* ignore */ }
+        }
+      }
+      setPrefsLoaded(true);
+    }
+  }, [existingPrefs, prefsLoaded]);
 
   const toggleCategory = (id: number) => {
     setSelectedCategories((prev) =>
@@ -50,17 +74,16 @@ export function SubscribeSection() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || selectedCategories.length === 0) {
+    if (selectedCategories.length === 0) {
       toast({
         title: "Missing fields",
-        description: "Please enter your email and select at least one category.",
+        description: "Please select at least one category.",
         variant: "destructive",
       });
       return;
     }
     try {
       await subscribeMutation.mutateAsync({
-        email,
         categoryIds: selectedCategories,
         frequency: frequency as "daily" | "weekly" | "monthly",
         interests: interests.length > 0 ? interests : undefined,
@@ -71,9 +94,6 @@ export function SubscribeSection() {
         title: "Subscribed!",
         description: `You'll receive ${frequency} digests personalized to your interests.`,
       });
-      setEmail("");
-      setSelectedCategories([]);
-      setInterests([]);
       setShowPreferences(false);
     } catch (err: any) {
       toast({
@@ -83,6 +103,8 @@ export function SubscribeSection() {
       });
     }
   };
+
+  const isEditing = prefsLoaded && existingPrefs && existingPrefs.subscriptions.length > 0;
 
   return (
     <section className="px-4 py-16">
@@ -98,144 +120,165 @@ export function SubscribeSection() {
             you'll get a great read.
           </p>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Categories */}
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Categories
+          {/* Not authenticated — sign-in prompt */}
+          {!isAuthenticated ? (
+            <div className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Sign in to set up your personalized digest.
               </p>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {categories?.map((cat) => (
-                  <Badge
-                    key={cat.id}
-                    variant={selectedCategories.includes(cat.id) ? "default" : "outline"}
-                    className="cursor-pointer px-2.5 py-1 text-xs rounded-md transition-colors"
-                    onClick={() => toggleCategory(cat.id)}
-                  >
-                    {selectedCategories.includes(cat.id) && (
-                      <Check className="w-3 h-3 mr-1" />
-                    )}
-                    {cat.name}
-                  </Badge>
-                ))}
+              <div className="flex gap-2 justify-center">
+                <Button variant="outline" size="sm" onClick={() => navigate("/login")}>
+                  <LogIn className="w-3.5 h-3.5 mr-1.5" />
+                  Log in
+                </Button>
+                <Button size="sm" onClick={() => navigate("/register")}>
+                  Sign up
+                </Button>
               </div>
             </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Categories */}
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Categories
+                </p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {categories?.map((cat) => (
+                    <Badge
+                      key={cat.id}
+                      variant={selectedCategories.includes(cat.id) ? "default" : "outline"}
+                      className="cursor-pointer px-2.5 py-1 text-xs rounded-md transition-colors"
+                      onClick={() => toggleCategory(cat.id)}
+                    >
+                      {selectedCategories.includes(cat.id) && (
+                        <Check className="w-3 h-3 mr-1" />
+                      )}
+                      {cat.name}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
 
-            {/* Email + Subscribe */}
-            <div className="flex gap-2 max-w-md mx-auto">
-              <Input
-                type="email"
-                placeholder="your@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="h-10"
-                required
-              />
-              <Button
-                type="submit"
-                className="h-10 px-5"
-                disabled={subscribeMutation.isPending}
+              {/* User email indicator */}
+              {user && (
+                <p className="text-xs text-muted-foreground">
+                  Digests sent to <span className="font-medium text-foreground">{user.email}</span>
+                </p>
+              )}
+
+              {/* Subscribe button */}
+              <div className="max-w-md mx-auto">
+                <Button
+                  type="submit"
+                  className="w-full h-10 px-5"
+                  disabled={subscribeMutation.isPending}
+                >
+                  {subscribeMutation.isPending
+                    ? "..."
+                    : isEditing
+                      ? "Update Preferences"
+                      : "Subscribe"}
+                </Button>
+              </div>
+
+              {/* Preferences toggle */}
+              <button
+                type="button"
+                onClick={() => setShowPreferences(!showPreferences)}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1 mx-auto"
               >
-                {subscribeMutation.isPending ? "..." : "Subscribe"}
-              </Button>
-            </div>
+                <ChevronDown className={`w-3 h-3 transition-transform ${showPreferences ? "rotate-180" : ""}`} />
+                Customize your digest
+              </button>
 
-            {/* Preferences toggle */}
-            <button
-              type="button"
-              onClick={() => setShowPreferences(!showPreferences)}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1 mx-auto"
-            >
-              <ChevronDown className={`w-3 h-3 transition-transform ${showPreferences ? "rotate-180" : ""}`} />
-              Customize your digest
-            </button>
+              {showPreferences && (
+                <div className="space-y-5 text-left max-w-md mx-auto pt-2 border-t border-border">
+                  {/* Frequency */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Frequency</label>
+                    <div className="flex gap-2">
+                      {FREQUENCIES.map((f) => (
+                        <button
+                          key={f.value}
+                          type="button"
+                          onClick={() => setFrequency(f.value)}
+                          className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+                            frequency === f.value
+                              ? "bg-foreground text-background border-foreground"
+                              : "border-border hover:border-foreground/30"
+                          }`}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-            {showPreferences && (
-              <div className="space-y-5 text-left max-w-md mx-auto pt-2 border-t border-border">
-                {/* Frequency */}
-                <div className="space-y-2">
-                  <label className="text-xs font-medium">Frequency</label>
-                  <div className="flex gap-2">
-                    {FREQUENCIES.map((f) => (
-                      <button
-                        key={f.value}
-                        type="button"
-                        onClick={() => setFrequency(f.value)}
-                        className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
-                          frequency === f.value
-                            ? "bg-foreground text-background border-foreground"
-                            : "border-border hover:border-foreground/30"
-                        }`}
-                      >
-                        {f.label}
-                      </button>
-                    ))}
+                  {/* Pricing filter */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Pricing</label>
+                    <div className="flex gap-2">
+                      {PRICING_OPTIONS.map((p) => (
+                        <button
+                          key={p.value}
+                          type="button"
+                          onClick={() => setPricingFilter(p.value)}
+                          className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+                            pricingFilter === p.value
+                              ? "bg-foreground text-background border-foreground"
+                              : "border-border hover:border-foreground/30"
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Interests */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Interests</label>
+                    <p className="text-xs text-muted-foreground">
+                      Our AI uses these to curate relevant project summaries for you.
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {INTEREST_SUGGESTIONS.map((interest) => (
+                        <Badge
+                          key={interest}
+                          variant={interests.includes(interest) ? "default" : "outline"}
+                          className="cursor-pointer px-2 py-0.5 text-xs rounded-md transition-colors"
+                          onClick={() => toggleInterest(interest)}
+                        >
+                          {interests.includes(interest) && <Check className="w-3 h-3 mr-1" />}
+                          {interest}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Max projects */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">
+                      Projects per digest: <span className="text-muted-foreground">{maxProjects}</span>
+                    </label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={25}
+                      value={maxProjects}
+                      onChange={(e) => setMaxProjects(parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-muted rounded-full appearance-none cursor-pointer accent-foreground"
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>Focused (1)</span>
+                      <span>Comprehensive (25)</span>
+                    </div>
                   </div>
                 </div>
-
-                {/* Pricing filter */}
-                <div className="space-y-2">
-                  <label className="text-xs font-medium">Pricing</label>
-                  <div className="flex gap-2">
-                    {PRICING_OPTIONS.map((p) => (
-                      <button
-                        key={p.value}
-                        type="button"
-                        onClick={() => setPricingFilter(p.value)}
-                        className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
-                          pricingFilter === p.value
-                            ? "bg-foreground text-background border-foreground"
-                            : "border-border hover:border-foreground/30"
-                        }`}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Interests */}
-                <div className="space-y-2">
-                  <label className="text-xs font-medium">Interests</label>
-                  <p className="text-xs text-muted-foreground">
-                    Our AI uses these to curate relevant project summaries for you.
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {INTEREST_SUGGESTIONS.map((interest) => (
-                      <Badge
-                        key={interest}
-                        variant={interests.includes(interest) ? "default" : "outline"}
-                        className="cursor-pointer px-2 py-0.5 text-xs rounded-md transition-colors"
-                        onClick={() => toggleInterest(interest)}
-                      >
-                        {interests.includes(interest) && <Check className="w-3 h-3 mr-1" />}
-                        {interest}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Max projects */}
-                <div className="space-y-2">
-                  <label className="text-xs font-medium">
-                    Projects per digest: <span className="text-muted-foreground">{maxProjects}</span>
-                  </label>
-                  <input
-                    type="range"
-                    min={1}
-                    max={25}
-                    value={maxProjects}
-                    onChange={(e) => setMaxProjects(parseInt(e.target.value))}
-                    className="w-full h-1.5 bg-muted rounded-full appearance-none cursor-pointer accent-foreground"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground">
-                    <span>Focused (1)</span>
-                    <span>Comprehensive (25)</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </form>
+              )}
+            </form>
+          )}
         </Card>
       </div>
     </section>

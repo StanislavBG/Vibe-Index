@@ -77,21 +77,20 @@ export const jobs = pgTable("jobs", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-// Enhanced subscriptions with preferences
+// User category subscriptions (which categories a user wants in their digest)
 export const categorySubscriptions = pgTable("category_subscriptions", {
   id: serial("id").primaryKey(),
-  email: text("email").notNull(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   categoryId: integer("category_id").notNull().references(() => categories.id, { onDelete: "cascade" }),
-  verified: boolean("verified").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
-  uniqueIndex("sub_email_category_idx").on(table.email, table.categoryId),
+  uniqueIndex("sub_user_category_idx").on(table.userId, table.categoryId),
 ]);
 
-// Newsletter preferences (one per email)
+// Newsletter / digest preferences (one per user)
 export const newsletterPreferences = pgTable("newsletter_preferences", {
   id: serial("id").primaryKey(),
-  email: text("email").notNull().unique(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
   frequency: text("frequency").notNull().default("weekly"), // daily, weekly, monthly
   interests: text("interests"), // JSON array of keywords
   pricingFilter: text("pricing_filter"), // free, paid, all
@@ -183,7 +182,6 @@ export const submitProjectSchema = z.object({
 });
 
 export const subscribeSchema = z.object({
-  email: z.string().email(),
   categoryIds: z.array(z.number()).min(1),
   frequency: z.enum(["daily", "weekly", "monthly"]).optional(),
   interests: z.array(z.string()).optional(),

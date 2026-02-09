@@ -52,13 +52,13 @@ export interface IStorage {
   getActiveJobs(): Promise<Job[]>;
 
   // Category Subscriptions
-  subscribe(email: string, categoryId: number): Promise<CategorySubscription>;
-  unsubscribe(email: string, categoryId: number): Promise<boolean>;
-  getSubscriptions(email: string): Promise<CategorySubscription[]>;
+  subscribe(userId: number, categoryId: number): Promise<CategorySubscription>;
+  unsubscribe(userId: number, categoryId: number): Promise<boolean>;
+  getSubscriptions(userId: number): Promise<CategorySubscription[]>;
 
   // Newsletter Preferences
-  getNewsletterPreference(email: string): Promise<NewsletterPreference | undefined>;
-  upsertNewsletterPreference(email: string, prefs: { frequency?: string; interests?: string; pricingFilter?: string; maxProjects?: number }): Promise<NewsletterPreference>;
+  getNewsletterPreference(userId: number): Promise<NewsletterPreference | undefined>;
+  upsertNewsletterPreference(userId: number, prefs: { frequency?: string; interests?: string; pricingFilter?: string; maxProjects?: number }): Promise<NewsletterPreference>;
 
   // Anonymous Submissions
   getAnonymousSubmissionCount(fingerprint: string): Promise<number>;
@@ -375,47 +375,47 @@ export class DatabaseStorage implements IStorage {
   }
 
   // === CATEGORY SUBSCRIPTIONS ===
-  async subscribe(email: string, categoryId: number): Promise<CategorySubscription> {
+  async subscribe(userId: number, categoryId: number): Promise<CategorySubscription> {
     const [sub] = await db.insert(categorySubscriptions)
-      .values({ email, categoryId })
+      .values({ userId, categoryId })
       .onConflictDoNothing()
       .returning();
     if (!sub) {
       const [existing] = await db.select().from(categorySubscriptions)
-        .where(and(eq(categorySubscriptions.email, email), eq(categorySubscriptions.categoryId, categoryId)));
+        .where(and(eq(categorySubscriptions.userId, userId), eq(categorySubscriptions.categoryId, categoryId)));
       return existing;
     }
     return sub;
   }
 
-  async unsubscribe(email: string, categoryId: number): Promise<boolean> {
+  async unsubscribe(userId: number, categoryId: number): Promise<boolean> {
     const result = await db.delete(categorySubscriptions)
-      .where(and(eq(categorySubscriptions.email, email), eq(categorySubscriptions.categoryId, categoryId)))
+      .where(and(eq(categorySubscriptions.userId, userId), eq(categorySubscriptions.categoryId, categoryId)))
       .returning();
     return result.length > 0;
   }
 
-  async getSubscriptions(email: string): Promise<CategorySubscription[]> {
-    return db.select().from(categorySubscriptions).where(eq(categorySubscriptions.email, email));
+  async getSubscriptions(userId: number): Promise<CategorySubscription[]> {
+    return db.select().from(categorySubscriptions).where(eq(categorySubscriptions.userId, userId));
   }
 
   // === NEWSLETTER PREFERENCES ===
-  async getNewsletterPreference(email: string): Promise<NewsletterPreference | undefined> {
-    const [pref] = await db.select().from(newsletterPreferences).where(eq(newsletterPreferences.email, email));
+  async getNewsletterPreference(userId: number): Promise<NewsletterPreference | undefined> {
+    const [pref] = await db.select().from(newsletterPreferences).where(eq(newsletterPreferences.userId, userId));
     return pref;
   }
 
-  async upsertNewsletterPreference(email: string, prefs: { frequency?: string; interests?: string; pricingFilter?: string; maxProjects?: number }): Promise<NewsletterPreference> {
-    const existing = await this.getNewsletterPreference(email);
+  async upsertNewsletterPreference(userId: number, prefs: { frequency?: string; interests?: string; pricingFilter?: string; maxProjects?: number }): Promise<NewsletterPreference> {
+    const existing = await this.getNewsletterPreference(userId);
     if (existing) {
       const [updated] = await db.update(newsletterPreferences)
         .set({ ...prefs, updatedAt: new Date() })
-        .where(eq(newsletterPreferences.email, email))
+        .where(eq(newsletterPreferences.userId, userId))
         .returning();
       return updated;
     }
     const [created] = await db.insert(newsletterPreferences)
-      .values({ email, ...prefs })
+      .values({ userId, ...prefs })
       .returning();
     return created;
   }

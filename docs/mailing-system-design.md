@@ -1,21 +1,38 @@
 # Vibe Index — Mailing System Design
 
+## 0. Key Architecture Decision: Users, Not Subscribers
+
+**Completed**: The "subscriber" concept has been eliminated. All subscription and
+digest preference data is now keyed on `users.id` (via Clerk authentication), not
+on bare email strings. This means:
+
+- `category_subscriptions` uses `user_id` FK (was `email`)
+- `newsletter_preferences` uses `user_id` FK (was `email`)
+- All subscribe endpoints (`POST/GET/DELETE /api/subscribe`) require authentication
+- The frontend prompts sign-in before allowing digest configuration
+- At compose time, one `user_id` joins: categories, frequency, interests,
+  likes, follows, comments, and social shares — full personalization from a single key
+
+The user's email for sending comes from `users.email` at send time — always fresh,
+never a stale duplicate.
+
+---
+
 ## 1. Current State: What Exists Today
 
 ### What IS implemented
-- **Database tables** for subscriptions and preferences (`category_subscriptions`, `newsletter_preferences`)
-- **API endpoints**: `POST /api/subscribe`, `DELETE /api/subscribe`
-- **Full UI**: `/subscribe` page + inline `<SubscribeSection>` on the home page
+- **Database tables** for subscriptions and preferences (`category_subscriptions`, `newsletter_preferences`) — both keyed on `user_id`
+- **API endpoints**: `POST /api/subscribe` (auth required), `GET /api/subscribe` (fetch current prefs), `DELETE /api/subscribe` (auth required)
+- **Full UI**: `/subscribe` page (requires login, loads existing prefs for editing) + inline `<SubscribeSection>` on the home page + sidebar widget
 - **User preference capture**: frequency (daily/weekly/monthly), interests (keywords), pricing filter, max projects per digest
 - **Project follows** (`project_follows` table) — authenticated users can follow specific projects
 - **In-app notifications** — system notifications for share verification, credit events, etc.
 
 ### What is NOT implemented
 - **No email service** — zero integration with any email provider (no Resend, SendGrid, Mailgun, SES, Nodemailer)
-- **No digest composition** — no logic to select projects matching a subscriber's preferences
+- **No digest composition** — no logic to select projects matching a user's preferences
 - **No scheduler** — no cron/job system for sending periodic digests
 - **No email templates** — no HTML email rendering
-- **No email verification** — `verified` column exists but nothing sets it to `true`
 - **No unsubscribe tokens** — no way to generate one-click unsubscribe links (CAN-SPAM compliance)
 - **No send tracking** — no record of what was sent to whom and when
 
@@ -45,10 +62,9 @@ Even without the email system, the existing schema captures useful personalizati
 | Missing Signal | Why It Matters |
 |---------------|----------------|
 | **Email open/click tracking** | Know which topics actually get engagement, not just what users said they want |
-| **Project view history** | Which project detail pages a subscriber visited (requires linking anonymous email subscriber to browsing session) |
+| **Project view history** | Which project detail pages a user visited |
 | **Digest send log** | Which projects were already sent so we never repeat them |
-| **Unsubscribe token per email** | CAN-SPAM / GDPR compliance — one-click unsubscribe |
-| **Subscriber ↔ User link** | Currently `category_subscriptions` uses bare email, not a `user_id` FK. Anonymous and auth users are disconnected |
+| **Unsubscribe token per user** | CAN-SPAM / GDPR compliance — one-click unsubscribe |
 
 ---
 
@@ -102,13 +118,10 @@ CREATE TABLE unsubscribe_tokens (
 CREATE UNIQUE INDEX idx_unsub_email ON unsubscribe_tokens(email);
 ```
 
-### 3d. Alter `category_subscriptions` — link to user when possible
+### 3d. ~~Alter `category_subscriptions`~~ (DONE)
 
-```sql
-ALTER TABLE category_subscriptions ADD COLUMN user_id INTEGER REFERENCES users(id);
-```
-
-This lets us join subscription data with likes, follows, comments, and shares for authenticated subscribers.
+Both `category_subscriptions` and `newsletter_preferences` now use `user_id` as the
+primary key instead of `email`. No migration needed — this was a schema redesign.
 
 ---
 
@@ -264,10 +277,11 @@ GET    /api/unsubscribe/:token           — one-click unsubscribe
 ## 8. Implementation Phases
 
 ### Phase 1: Foundation (unblock email sending)
+- [x] Consolidate identity: subscriptions and preferences keyed on `user_id`, not email
+- [x] Require auth for all subscribe endpoints; frontend prompts sign-in
+- [x] Add `GET /api/subscribe` to load existing preferences for editing
 - [ ] Add `resend` npm package
 - [ ] Create `email_campaigns`, `email_sends`, `unsubscribe_tokens` tables in schema
-- [ ] Add `user_id` column to `category_subscriptions`
-- [ ] Implement email verification flow (send verification email on subscribe, set `verified = true` on click)
 - [ ] Build unsubscribe token generation and the `GET /api/unsubscribe/:token` endpoint
 - [ ] Create a single HTML email template for project digests (React Email or inline HTML)
 - [ ] Build the digest composer: query projects → score → select → render → send
@@ -278,8 +292,7 @@ GET    /api/unsubscribe/:token           — one-click unsubscribe
 - [ ] Add behavioral signals: boost projects similar to liked/followed ones
 - [ ] Add "followed project updates" section in digest emails
 - [ ] Set up Resend webhook endpoint to track opens, clicks, bounces
-- [ ] Backfill `user_id` on existing `category_subscriptions` where email matches a `users.email`
-- [ ] Build deduplication: never send the same project to the same subscriber twice
+- [ ] Build deduplication: never send the same project to the same user twice
 
 ### Phase 3: Admin campaign tools
 - [ ] Admin campaign CRUD API

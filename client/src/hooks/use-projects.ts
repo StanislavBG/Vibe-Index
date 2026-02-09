@@ -256,10 +256,28 @@ export function useLikeProject() {
   });
 }
 
+export interface DigestPreferences {
+  subscriptions: { id: number; userId: number; categoryId: number; createdAt: string }[];
+  preferences: {
+    id: number;
+    userId: number;
+    frequency: string;
+    interests: string | null;
+    pricingFilter: string | null;
+    maxProjects: number;
+  } | null;
+}
+
+export function useDigestPreferences() {
+  return useQuery<DigestPreferences>({
+    queryKey: ["/api/subscribe"],
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useSubscribe() {
   return useMutation({
     mutationFn: async (data: {
-      email: string;
       categoryIds: number[];
       frequency?: string;
       interests?: string[];
@@ -268,6 +286,9 @@ export function useSubscribe() {
     }) => {
       const res = await apiRequest("POST", "/api/subscribe", data);
       return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/subscribe"] });
     },
   });
 }

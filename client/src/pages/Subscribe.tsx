@@ -1,17 +1,17 @@
-import { useState } from "react";
-import { useLocation, Link } from "wouter";
+import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import {
-  Bell, Check, ChevronDown, Shield, Clock, Sparkles,
-  Mail, ArrowRight, Zap
+  Bell, Check, Shield, Clock, Sparkles,
+  Mail, ArrowRight, Zap, LogIn,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Navbar } from "@/components/Navbar";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
-import { useCategories, useSubscribe } from "@/hooks/use-projects";
+import { useCategories, useSubscribe, useDigestPreferences } from "@/hooks/use-projects";
+import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 
 const FREQUENCIES = [
@@ -34,16 +34,38 @@ const INTEREST_SUGGESTIONS = [
 
 export default function Subscribe() {
   const [, navigate] = useLocation();
-  const [email, setEmail] = useState("");
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [selectedCategories, setSelectedCategories] = useState<number[]>([]);
   const [frequency, setFrequency] = useState("weekly");
   const [pricingFilter, setPricingFilter] = useState("all");
   const [interests, setInterests] = useState<string[]>([]);
   const [maxProjects, setMaxProjects] = useState(10);
   const [submitted, setSubmitted] = useState(false);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
   const { data: categories } = useCategories();
+  const { data: existingPrefs } = useDigestPreferences();
   const subscribeMutation = useSubscribe();
   const { toast } = useToast();
+
+  // Load existing preferences when they arrive
+  useEffect(() => {
+    if (existingPrefs && !prefsLoaded) {
+      if (existingPrefs.subscriptions.length > 0) {
+        setSelectedCategories(existingPrefs.subscriptions.map(s => s.categoryId));
+      }
+      if (existingPrefs.preferences) {
+        setFrequency(existingPrefs.preferences.frequency || "weekly");
+        setPricingFilter(existingPrefs.preferences.pricingFilter || "all");
+        setMaxProjects(existingPrefs.preferences.maxProjects || 10);
+        if (existingPrefs.preferences.interests) {
+          try {
+            setInterests(JSON.parse(existingPrefs.preferences.interests));
+          } catch { /* ignore */ }
+        }
+      }
+      setPrefsLoaded(true);
+    }
+  }, [existingPrefs, prefsLoaded]);
 
   const toggleCategory = (id: number) => {
     setSelectedCategories((prev) =>
@@ -59,17 +81,16 @@ export default function Subscribe() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || selectedCategories.length === 0) {
+    if (selectedCategories.length === 0) {
       toast({
         title: "Almost there",
-        description: "Enter your email and pick at least one category.",
+        description: "Pick at least one category.",
         variant: "destructive",
       });
       return;
     }
     try {
       await subscribeMutation.mutateAsync({
-        email,
         categoryIds: selectedCategories,
         frequency: frequency as "daily" | "weekly" | "monthly",
         interests: interests.length > 0 ? interests : undefined,
@@ -103,6 +124,8 @@ export default function Subscribe() {
     },
   };
 
+  const isEditing = prefsLoaded && existingPrefs && existingPrefs.subscriptions.length > 0;
+
   return (
     <div className="min-h-screen w-full relative">
       <BackgroundEffect />
@@ -130,7 +153,27 @@ export default function Subscribe() {
             </p>
           </motion.div>
 
-          {submitted ? (
+          {/* Not authenticated — show sign-in prompt */}
+          {!authLoading && !isAuthenticated ? (
+            <motion.div variants={itemVariants}>
+              <Card className="glass-card p-10 text-center">
+                <LogIn className="w-10 h-10 mx-auto text-muted-foreground mb-4" />
+                <h2 className="text-xl font-bold mb-2">Sign in to subscribe</h2>
+                <p className="text-muted-foreground text-sm max-w-sm mx-auto mb-6">
+                  Your digest preferences are tied to your account so we can
+                  personalize based on your likes, follows, and interests.
+                </p>
+                <div className="flex gap-3 justify-center">
+                  <Button variant="outline" onClick={() => navigate("/login")}>
+                    Log in
+                  </Button>
+                  <Button onClick={() => navigate("/register")}>
+                    Sign up
+                  </Button>
+                </div>
+              </Card>
+            </motion.div>
+          ) : submitted ? (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -140,17 +183,19 @@ export default function Subscribe() {
                 <div className="w-12 h-12 rounded-full bg-foreground text-background flex items-center justify-center mx-auto mb-4">
                   <Check className="w-6 h-6" />
                 </div>
-                <h2 className="text-2xl font-bold mb-2">You're in</h2>
+                <h2 className="text-2xl font-bold mb-2">
+                  {isEditing ? "Preferences updated" : "You're in"}
+                </h2>
                 <p className="text-muted-foreground text-sm max-w-sm mx-auto mb-6">
-                  Your first {frequency} digest will arrive based on your preferences.
-                  Each email is uniquely composed to match your interests.
+                  Your {frequency} digest will be composed based on your preferences.
+                  Each email is uniquely curated to match your interests.
                 </p>
                 <div className="flex gap-3 justify-center">
                   <Button variant="outline" onClick={() => navigate("/")}>
                     Discover Projects
                   </Button>
-                  <Button onClick={() => { setSubmitted(false); setEmail(""); setSelectedCategories([]); }}>
-                    Subscribe Another Email
+                  <Button onClick={() => { setSubmitted(false); }}>
+                    Edit Preferences
                   </Button>
                 </div>
               </Card>
@@ -181,6 +226,16 @@ export default function Subscribe() {
                   </p>
                 </Card>
               </motion.div>
+
+              {/* Logged-in user info */}
+              {user && (
+                <motion.div variants={itemVariants} className="mb-4">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+                    <Mail className="w-3.5 h-3.5" />
+                    Digests will be sent to <span className="font-medium text-foreground">{user.email}</span>
+                  </div>
+                </motion.div>
+              )}
 
               {/* Main form */}
               <motion.div variants={itemVariants}>
@@ -298,31 +353,19 @@ export default function Subscribe() {
                       </div>
                     </div>
 
-                    {/* Step 4: Email */}
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-md bg-foreground text-background text-xs font-bold flex items-center justify-center flex-shrink-0">4</span>
-                        <label className="text-sm font-semibold">Your email</label>
-                      </div>
-                      <div className="flex gap-2 ml-8">
-                        <Input
-                          type="email"
-                          placeholder="you@example.com"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          className="h-11"
-                          required
-                        />
-                        <Button
-                          type="submit"
-                          className="h-11 px-6 gap-2 group"
-                          disabled={subscribeMutation.isPending}
-                        >
-                          {subscribeMutation.isPending ? "Subscribing..." : "Subscribe"}
-                          <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-                        </Button>
-                      </div>
-                    </div>
+                    {/* Submit */}
+                    <Button
+                      type="submit"
+                      className="w-full h-11 gap-2 group"
+                      disabled={subscribeMutation.isPending}
+                    >
+                      {subscribeMutation.isPending
+                        ? "Saving..."
+                        : isEditing
+                          ? "Update Preferences"
+                          : "Subscribe"}
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                    </Button>
                   </form>
                 </Card>
               </motion.div>

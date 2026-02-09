@@ -21,6 +21,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useProjects, useCategories, useVoiceSearch, useSubscribe } from "@/hooks/use-projects";
+import { useAuth } from "@/hooks/use-auth";
 import { ProjectCard } from "@/components/ProjectCard";
 import { Navbar } from "@/components/Navbar";
 import { useToast } from "@/hooks/use-toast";
@@ -44,11 +45,12 @@ export default function Home() {
   const chunksRef = useRef<Blob[]>([]);
   const { toast } = useToast();
 
+  const { isAuthenticated } = useAuth();
+
   // Quick-submit panel
   const [submitUrl, setSubmitUrl] = useState("");
 
   // Inline subscribe panel
-  const [subscribeEmail, setSubscribeEmail] = useState("");
   const [subscribeCats, setSubscribeCats] = useState<number[]>([]);
   const subscribeMutation = useSubscribe();
 
@@ -127,22 +129,20 @@ export default function Home() {
 
   const handleSubscribe = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!subscribeEmail || subscribeCats.length === 0) {
+    if (subscribeCats.length === 0) {
       toast({
         title: "Missing fields",
-        description: "Enter your email and select at least one category.",
+        description: "Select at least one category.",
         variant: "destructive",
       });
       return;
     }
     try {
       await subscribeMutation.mutateAsync({
-        email: subscribeEmail,
         categoryIds: subscribeCats,
         frequency: "weekly",
       });
       toast({ title: "Subscribed!", description: "You'll receive weekly digests matched to your interests." });
-      setSubscribeEmail("");
       setSubscribeCats([]);
     } catch (err: any) {
       toast({ title: "Subscription failed", description: err.message || "Something went wrong", variant: "destructive" });
@@ -416,60 +416,72 @@ export default function Home() {
               interests. Zero spam.
             </p>
 
-            <form onSubmit={handleSubscribe} className="space-y-3 flex-1 flex flex-col">
-              {/* Category picks */}
-              <div>
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                  Categories
+            {!isAuthenticated ? (
+              <div className="space-y-3 flex-1 flex flex-col">
+                <p className="text-[10px] text-muted-foreground">
+                  Sign in to set up your personalized digest.
                 </p>
-                <div className="flex flex-wrap gap-1">
-                  {categoriesData?.map((cat) => (
-                    <Badge
-                      key={cat.id}
-                      variant={
-                        subscribeCats.includes(cat.id) ? "default" : "outline"
-                      }
-                      className="cursor-pointer px-1.5 py-0.5 text-[10px] rounded transition-colors"
-                      onClick={() => toggleSubscribeCat(cat.id)}
-                    >
-                      {subscribeCats.includes(cat.id) && (
-                        <Check className="w-2.5 h-2.5 mr-0.5" />
-                      )}
-                      {cat.name}
-                    </Badge>
-                  ))}
-                </div>
+                <Button
+                  className="w-full h-10 text-xs font-bold gap-2 group"
+                  onClick={() => navigate("/register")}
+                >
+                  Sign up for Digest
+                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => navigate("/login")}
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors text-center"
+                >
+                  Already have an account? Log in →
+                </button>
               </div>
+            ) : (
+              <form onSubmit={handleSubscribe} className="space-y-3 flex-1 flex flex-col">
+                {/* Category picks */}
+                <div>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                    Categories
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {categoriesData?.map((cat) => (
+                      <Badge
+                        key={cat.id}
+                        variant={
+                          subscribeCats.includes(cat.id) ? "default" : "outline"
+                        }
+                        className="cursor-pointer px-1.5 py-0.5 text-[10px] rounded transition-colors"
+                        onClick={() => toggleSubscribeCat(cat.id)}
+                      >
+                        {subscribeCats.includes(cat.id) && (
+                          <Check className="w-2.5 h-2.5 mr-0.5" />
+                        )}
+                        {cat.name}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
 
-              {/* Email */}
-              <Input
-                type="email"
-                placeholder="your@email.com"
-                value={subscribeEmail}
-                onChange={(e) => setSubscribeEmail(e.target.value)}
-                className="h-9 text-xs"
-                required
-              />
+                <Button
+                  type="submit"
+                  className="w-full h-10 text-xs font-bold gap-2 group"
+                  disabled={subscribeMutation.isPending}
+                >
+                  {subscribeMutation.isPending
+                    ? "Subscribing..."
+                    : "Subscribe to Digest"}
+                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                </Button>
 
-              <Button
-                type="submit"
-                className="w-full h-10 text-xs font-bold gap-2 group"
-                disabled={subscribeMutation.isPending}
-              >
-                {subscribeMutation.isPending
-                  ? "Subscribing..."
-                  : "Subscribe to Digest"}
-                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-              </Button>
-
-              <button
-                type="button"
-                onClick={() => navigate("/subscribe")}
-                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors text-center"
-              >
-                Customize frequency & preferences →
-              </button>
-            </form>
+                <button
+                  type="button"
+                  onClick={() => navigate("/subscribe")}
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors text-center"
+                >
+                  Customize frequency & preferences →
+                </button>
+              </form>
+            )}
           </div>
         </aside>
       </div>
