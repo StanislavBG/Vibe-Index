@@ -5,6 +5,8 @@ import { z } from "zod";
 import { setupAuth, requireAuth, syncClerkUser } from "./auth";
 import { getAuth } from "@clerk/express";
 import { submitProjectSchema, subscribeSchema, createCommentSchema, submitSocialShareSchema } from "@shared/schema";
+import { runDigest, startDigestScheduler } from "./digest";
+import { isEmailConfigured } from "./email";
 import { processJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
 import crypto from "crypto";
 import multer from "multer";
@@ -127,6 +129,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   setupAuth(app);
   await seedCategories();
   startVerificationScheduler();
+  startDigestScheduler();
 
   // ==========================================
   // AUTH ROUTES
@@ -549,6 +552,61 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const subscriptions = await storage.getSubscriptions(user.id);
     const preferences = await storage.getNewsletterPreference(user.id);
     res.json({ subscriptions, preferences: preferences || null });
+  });
+
+  // ==========================================
+  // EMAIL / DIGEST
+  // ==========================================
+
+  // One-click unsubscribe (no auth needed — uses token)
+  app.get("/api/unsubscribe/:token", async (req, res) => {
+    const { token } = req.params;
+    const user = await storage.getUserByUnsubscribeToken(token as string);
+    if (!user) {
+      return res.status(404).send(`
+        <html><body style="font-family: sans-serif; padding: 40px; text-align: center;">
+          <h2>Invalid or expired link</h2>
+          <p>This unsubscribe link is no longer valid.</p>
+        </body></html>
+      `);
+    }
+    await storage.deleteAllSubscriptions(user.id);
+    res.send(`
+      <html><body style="font-family: sans-serif; padding: 40px; text-align: center;">
+        <h2>You've been unsubscribed</h2>
+        <p>You won't receive any more digest emails from Vibe Index.</p>
+        <p style="margin-top: 20px;"><a href="/">Back to Vibe Index</a></p>
+      </body></html>
+    `);
+  });
+
+  // Manual digest trigger (for testing — no auth for now, can lock down later)
+  app.post("/api/digest/trigger", async (req, res) => {
+    const { frequency } = req.body;
+    if (!frequency || !["daily", "weekly", "monthly"].includes(frequency)) {
+      return res.status(400).json({ message: "frequency must be daily, weekly, or monthly" });
+    }
+    if (!isEmailConfigured()) {
+      return res.status(503).json({
+        message: "SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS in environment.",
+      });
+    }
+    try {
+      const result = await runDigest(frequency);
+      res.json({ message: `${frequency} digest completed`, ...result });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      res.status(500).json({ message: `Digest failed: ${message}` });
+    }
+  });
+
+  // Check email system status
+  app.get("/api/digest/status", async (_req, res) => {
+    res.json({
+      smtpConfigured: isEmailConfigured(),
+      smtpHost: process.env.SMTP_HOST || null,
+      smtpFrom: process.env.SMTP_FROM || process.env.SMTP_USER || null,
+    });
   });
 
   // ==========================================

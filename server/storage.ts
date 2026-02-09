@@ -3,10 +3,12 @@ import {
   users, projects, categories, projectCategories, likes,
   categorySubscriptions, anonymousSubmissions, jobs, newsletterPreferences,
   comments, projectFollows, socialShares, creditLedger, notifications,
+  emailSends, unsubscribeTokens,
   type User, type InsertUser, type Project, type InsertProject,
   type Category, type InsertCategory, type Like, type CategorySubscription,
   type Job, type NewsletterPreference, type Comment, type ProjectFollow,
   type SocialShare, type CreditLedgerEntry, type Notification,
+  type EmailSend, type UnsubscribeToken,
 } from "@shared/schema";
 import { eq, and, ilike, or, sql, desc, asc, count } from "drizzle-orm";
 
@@ -92,6 +94,21 @@ export interface IStorage {
   getUnreadNotificationCount(userId: number): Promise<number>;
   markNotificationRead(id: number, userId: number): Promise<boolean>;
   markAllNotificationsRead(userId: number): Promise<number>;
+
+  // Email Sends
+  createEmailSend(userId: number, subject: string, frequency: string, projectIds: number[]): Promise<EmailSend>;
+  updateEmailSend(id: number, updates: Partial<Pick<EmailSend, "status" | "error" | "sentAt">>): Promise<EmailSend | undefined>;
+  getRecentEmailSend(userId: number, frequency: string): Promise<EmailSend | undefined>;
+  getSentProjectIds(userId: number): Promise<number[]>;
+
+  // Unsubscribe Tokens
+  getOrCreateUnsubscribeToken(userId: number): Promise<string>;
+  getUserByUnsubscribeToken(token: string): Promise<User | undefined>;
+  deleteAllSubscriptions(userId: number): Promise<void>;
+
+  // Digest queries
+  getDigestEligibleUsers(frequency: string): Promise<(User & { prefs: NewsletterPreference; categoryIds: number[] })[]>;
+  getProjectsForDigest(categoryIds: number[], pricingFilter: string | null, excludeProjectIds: number[], limit: number): Promise<Project[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -589,6 +606,122 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(notifications.userId, userId), eq(notifications.read, false)))
       .returning();
     return result.length;
+  }
+
+  // === EMAIL SENDS ===
+  async createEmailSend(userId: number, subject: string, frequency: string, projectIds: number[]): Promise<EmailSend> {
+    const [send] = await db.insert(emailSends).values({
+      userId, subject, frequency, projectIds: JSON.stringify(projectIds), status: "queued",
+    }).returning();
+    return send;
+  }
+
+  async updateEmailSend(id: number, updates: Partial<Pick<EmailSend, "status" | "error" | "sentAt">>): Promise<EmailSend | undefined> {
+    const [send] = await db.update(emailSends).set(updates).where(eq(emailSends.id, id)).returning();
+    return send;
+  }
+
+  async getRecentEmailSend(userId: number, frequency: string): Promise<EmailSend | undefined> {
+    const [send] = await db.select().from(emailSends)
+      .where(and(
+        eq(emailSends.userId, userId),
+        eq(emailSends.frequency, frequency),
+        eq(emailSends.status, "sent"),
+      ))
+      .orderBy(desc(emailSends.sentAt))
+      .limit(1);
+    return send;
+  }
+
+  async getSentProjectIds(userId: number): Promise<number[]> {
+    const sends = await db.select({ projectIds: emailSends.projectIds })
+      .from(emailSends)
+      .where(and(eq(emailSends.userId, userId), eq(emailSends.status, "sent")));
+    const allIds: number[] = [];
+    for (const s of sends) {
+      if (s.projectIds) {
+        try { allIds.push(...JSON.parse(s.projectIds)); } catch { /* ignore */ }
+      }
+    }
+    return Array.from(new Set(allIds));
+  }
+
+  // === UNSUBSCRIBE TOKENS ===
+  async getOrCreateUnsubscribeToken(userId: number): Promise<string> {
+    const [existing] = await db.select().from(unsubscribeTokens)
+      .where(eq(unsubscribeTokens.userId, userId));
+    if (existing) return existing.token;
+    const { randomBytes } = await import("crypto");
+    const token = randomBytes(32).toString("hex");
+    await db.insert(unsubscribeTokens).values({ userId, token });
+    return token;
+  }
+
+  async getUserByUnsubscribeToken(token: string): Promise<User | undefined> {
+    const [row] = await db.select({ user: users })
+      .from(unsubscribeTokens)
+      .innerJoin(users, eq(unsubscribeTokens.userId, users.id))
+      .where(eq(unsubscribeTokens.token, token));
+    return row?.user;
+  }
+
+  async deleteAllSubscriptions(userId: number): Promise<void> {
+    await db.delete(categorySubscriptions).where(eq(categorySubscriptions.userId, userId));
+    await db.delete(newsletterPreferences).where(eq(newsletterPreferences.userId, userId));
+  }
+
+  // === DIGEST QUERIES ===
+  async getDigestEligibleUsers(frequency: string): Promise<(User & { prefs: NewsletterPreference; categoryIds: number[] })[]> {
+    // Get all users who have this frequency preference and at least one category subscription
+    const rows = await db.select({
+      user: users,
+      prefs: newsletterPreferences,
+    })
+      .from(newsletterPreferences)
+      .innerJoin(users, eq(newsletterPreferences.userId, users.id))
+      .where(eq(newsletterPreferences.frequency, frequency));
+
+    const results: (User & { prefs: NewsletterPreference; categoryIds: number[] })[] = [];
+    for (const row of rows) {
+      const subs = await db.select({ categoryId: categorySubscriptions.categoryId })
+        .from(categorySubscriptions)
+        .where(eq(categorySubscriptions.userId, row.user.id));
+      if (subs.length > 0) {
+        results.push({
+          ...row.user,
+          prefs: row.prefs,
+          categoryIds: subs.map(s => s.categoryId),
+        });
+      }
+    }
+    return results;
+  }
+
+  async getProjectsForDigest(categoryIds: number[], pricingFilter: string | null, excludeProjectIds: number[], limit: number): Promise<Project[]> {
+    const conditions = [eq(projects.status, "active")];
+
+    if (pricingFilter && pricingFilter !== "all") {
+      conditions.push(eq(projects.pricingModel, pricingFilter));
+    }
+
+    if (excludeProjectIds.length > 0) {
+      conditions.push(
+        sql`${projects.id} NOT IN (${sql.join(excludeProjectIds.map(id => sql`${id}`), sql`, `)})`
+      );
+    }
+
+    // Get projects that belong to any of the subscribed categories
+    const rows = await db.selectDistinctOn([projects.id], { project: projects })
+      .from(projects)
+      .innerJoin(projectCategories, eq(projects.id, projectCategories.projectId))
+      .where(and(
+        ...conditions,
+        sql`${projectCategories.categoryId} IN (${sql.join(categoryIds.map(id => sql`${id}`), sql`, `)})`
+      ))
+      .orderBy(projects.id, desc(projects.createdAt))
+      .limit(limit);
+
+    return rows.map(r => r.project);
   }
 }
 
