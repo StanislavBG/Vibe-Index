@@ -3,7 +3,7 @@ import { useLocation, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, type NotificationData } from "@/hooks/use-projects";
-import { Menu, X, Bell, CheckCheck, ExternalLink } from "lucide-react";
+import { LogOut, Menu, X, Bell, CheckCheck, ExternalLink } from "lucide-react";
 import { timeAgo } from "@/lib/time";
 
 function NotificationBell() {

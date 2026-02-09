@@ -19,7 +19,9 @@ function Router() {
       <Route path="/subscribe" component={Subscribe} />
       <Route path="/project/:id" component={ProjectDetail} />
       <Route path="/dashboard" component={Dashboard} />
+      <Route path="/login" component={SignInPage} />
       <Route path="/login/:rest*" component={SignInPage} />
+      <Route path="/register" component={SignUpPage} />
       <Route path="/register/:rest*" component={SignUpPage} />
       <Route component={NotFound} />
     </Switch>
