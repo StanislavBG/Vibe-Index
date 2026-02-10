@@ -1,0 +1,48 @@
+# Vibe Index
+
+> Vibe Index is a project discovery and sharing platform where developers and creators submit, browse, and discuss software projects. Think of it as a community-driven directory for the latest tools, apps, and APIs across 12 categories.
+
+Key actions visitors can take:
+- Browse and search projects by category, pricing model, or keyword
+- Submit a new project for AI-powered analysis and community listing
+- Subscribe to category-specific email digests (daily, weekly, or monthly)
+- Like, follow, and comment on projects
+- Earn listing credits by sharing projects on social media
+
+Categories: AI & Machine Learning, Developer Tools, Web Apps, Mobile Apps, APIs & Backend, Games, E-Commerce, Productivity, Social & Community, Education, Finance, Design & Creative.
+
+## Browse Projects
+
+- [All Projects](/): Browse, search, and filter the full project directory
+- [AI & Machine Learning](/?category=ai-ml): AI, ML, and LLM projects
+- [Developer Tools](/?category=dev-tools): CLIs, editors, and developer utilities
+- [Web Apps](/?category=web-apps): Full-stack web applications
+- [Mobile Apps](/?category=mobile-apps): iOS and Android applications
+- [APIs & Backend](/?category=apis-backend): Backend services and APIs
+- [Games](/?category=games): Games and interactive experiences
+- [E-Commerce](/?category=ecommerce): Online stores and marketplaces
+- [Productivity](/?category=productivity): Task management and productivity tools
+- [Social & Community](/?category=social): Social platforms and community tools
+- [Education](/?category=education): Learning platforms and educational tools
+- [Finance](/?category=finance): Fintech and financial tools
+- [Design & Creative](/?category=design-creative): Design tools and creative platforms
+
+## Submit a Project
+
+- [Submit Project](/submit): Submit a new project URL for AI-powered analysis and community listing. The system automatically extracts metadata, generates descriptions, and suggests categories. Users get 3 free listing credits to start.
+
+## Subscribe to Updates
+
+- [Subscribe to Digests](/subscribe): Subscribe to category-specific email digests delivered daily, weekly, or monthly. Filter by pricing model (free, paid, or all) and customize the number of projects per digest.
+
+## API
+
+- [List Projects](/api/projects): GET — Browse projects with search, category, pricing, sort, and pagination parameters
+- [Get Project](/api/projects/{id}): GET — Get full details for a specific project
+- [Get Categories](/api/categories): GET — List all 12 project categories
+- [Health Check](/api/hello): GET — Verify the API is running
+
+## Optional
+
+- [Dashboard](/dashboard): Manage your submitted projects, credits, and notifications (requires login)
+- [Login](/login): Create an account or sign in to submit projects, like, follow, and comment

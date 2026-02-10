@@ -132,6 +132,57 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   startDigestScheduler();
 
   // ==========================================
+  // AGENT DISCOVERY — .well-known/agent.json
+  // Served via route because express.static ignores dotfiles by default
+  // ==========================================
+  app.get("/.well-known/agent.json", (_req, res) => {
+    res.json({
+      name: "Vibe Index",
+      description: "A project discovery and sharing platform where developers and creators submit, browse, and discuss software projects across 12 categories.",
+      url: "/",
+      version: "1.0",
+      capabilities: {
+        browsing: true,
+        search: true,
+        submission: true,
+        subscription: true,
+      },
+      defaultInputModes: ["text"],
+      defaultOutputModes: ["text", "json"],
+      skills: [
+        {
+          id: "browse-projects",
+          name: "Browse Projects",
+          description: "Browse, search, and filter software projects by category, pricing, or keyword",
+          uri: "/api/projects",
+          method: "GET",
+        },
+        {
+          id: "submit-project",
+          name: "Submit Project",
+          description: "Submit a project URL for AI-powered analysis and community listing",
+          uri: "/submit",
+          method: "navigate",
+        },
+        {
+          id: "subscribe",
+          name: "Subscribe to Updates",
+          description: "Subscribe to category-specific email digests for new project discoveries",
+          uri: "/subscribe",
+          method: "navigate",
+        },
+        {
+          id: "list-categories",
+          name: "List Categories",
+          description: "Get all 12 project categories: AI/ML, Dev Tools, Web Apps, Mobile, APIs, Games, E-Commerce, Productivity, Social, Education, Finance, Design",
+          uri: "/api/categories",
+          method: "GET",
+        },
+      ],
+    });
+  });
+
+  // ==========================================
   // AUTH ROUTES
   // ==========================================
   app.get("/api/auth/me", syncClerkUser, async (req, res) => {

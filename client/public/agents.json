@@ -1,0 +1,131 @@
+{
+  "apiVersion": "1.0",
+  "baseUrl": "/",
+  "name": "Vibe Index",
+  "description": "A project discovery and sharing platform for developers and creators. Browse, submit, and discuss software projects across 12 categories.",
+  "pages": {
+    "/": {
+      "description": "Home page — browse, search, and filter the full project directory",
+      "uiInteractions": {
+        "searchBar": {
+          "selector": "input[placeholder*='Search']",
+          "description": "Search projects by keyword",
+          "agent_instructions": "Type a search query to find projects by name, description, or tags. Press Enter or wait for results to load automatically."
+        },
+        "categoryFilter": {
+          "selector": "[data-category]",
+          "description": "Filter projects by category",
+          "agent_instructions": "Click a category button to filter projects. Categories include: AI & Machine Learning, Developer Tools, Web Apps, Mobile Apps, APIs & Backend, Games, E-Commerce, Productivity, Social & Community, Education, Finance, Design & Creative."
+        },
+        "pricingFilter": {
+          "selector": "[data-pricing]",
+          "description": "Filter projects by pricing model",
+          "agent_instructions": "Click to filter by pricing: free, freemium, paid, or open-source."
+        },
+        "sortSelector": {
+          "selector": "[data-sort]",
+          "description": "Sort projects",
+          "agent_instructions": "Change sort order: newest, most liked, or most followed."
+        },
+        "projectCard": {
+          "selector": "[data-project-id]",
+          "description": "A project listing card",
+          "agent_instructions": "Click a project card to view its full details, including description, links, tags, and community discussion."
+        }
+      }
+    },
+    "/submit": {
+      "description": "Submit a new project for listing on Vibe Index. Users start with 3 free listing credits.",
+      "uiInteractions": {
+        "urlInput": {
+          "selector": "input[name='url'], input[type='url']",
+          "description": "Enter the project URL to submit",
+          "agent_instructions": "Enter the full URL of the project website (e.g. https://example.com). The system will fetch and analyze the site using AI to extract metadata, generate descriptions, and suggest categories."
+        },
+        "submitButton": {
+          "selector": "button[type='submit']",
+          "description": "Submit the project for analysis",
+          "agent_instructions": "Click to submit the URL. This starts an AI-powered analysis job. You will be shown a draft to review and edit before the project goes live."
+        }
+      }
+    },
+    "/subscribe": {
+      "description": "Subscribe to email digests for new projects in selected categories",
+      "uiInteractions": {
+        "categoryCheckboxes": {
+          "selector": "input[type='checkbox'][name*='category']",
+          "description": "Select categories to subscribe to",
+          "agent_instructions": "Check one or more category checkboxes to receive email digests about new projects in those categories."
+        },
+        "frequencySelector": {
+          "selector": "select[name='frequency'], [data-frequency]",
+          "description": "Choose digest frequency",
+          "agent_instructions": "Select how often to receive digest emails: daily, weekly, or monthly."
+        },
+        "subscribeButton": {
+          "selector": "button[type='submit']",
+          "description": "Subscribe to selected categories",
+          "agent_instructions": "Click to subscribe. Requires a logged-in account. You will receive curated project digest emails at the selected frequency."
+        }
+      }
+    },
+    "/project/:id": {
+      "description": "Project detail page showing full information and community discussion",
+      "uiInteractions": {
+        "likeButton": {
+          "selector": "[data-action='like']",
+          "description": "Like this project",
+          "agent_instructions": "Click to like the project. Requires a logged-in account. Users have a limited number of likes."
+        },
+        "followButton": {
+          "selector": "[data-action='follow']",
+          "description": "Follow this project for updates",
+          "agent_instructions": "Click to follow the project and receive notifications about updates."
+        },
+        "commentInput": {
+          "selector": "textarea[name='comment'], [data-comment-input]",
+          "description": "Write a comment on the project",
+          "agent_instructions": "Type a comment and submit to join the community discussion about this project. Requires a logged-in account."
+        }
+      }
+    }
+  },
+  "suggestedActions": [
+    {
+      "action": "browse_projects",
+      "description": "Browse and discover software projects",
+      "url": "/",
+      "method": "navigate"
+    },
+    {
+      "action": "search_projects",
+      "description": "Search for projects by keyword via the API",
+      "url": "/api/projects?search={query}",
+      "method": "GET"
+    },
+    {
+      "action": "submit_project",
+      "description": "Submit a new project for AI-powered analysis and community listing",
+      "url": "/submit",
+      "method": "navigate"
+    },
+    {
+      "action": "subscribe_to_updates",
+      "description": "Subscribe to email digests for new projects in specific categories",
+      "url": "/subscribe",
+      "method": "navigate"
+    },
+    {
+      "action": "list_categories",
+      "description": "Get all available project categories",
+      "url": "/api/categories",
+      "method": "GET"
+    },
+    {
+      "action": "view_project",
+      "description": "View full details for a specific project",
+      "url": "/api/projects/{id}",
+      "method": "GET"
+    }
+  ]
+}
