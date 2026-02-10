@@ -1,0 +1,21 @@
+# Vibe Index — Project Discovery Platform
+
+User-agent: *
+Allow: /
+Allow: /llms.txt
+Allow: /agents.json
+Allow: /.well-known/agent.json
+
+# Disallow private/authenticated areas
+Disallow: /api/auth/
+Disallow: /api/stripe/
+Disallow: /api/notifications
+Disallow: /api/my-projects
+Disallow: /api/balance
+Disallow: /api/social-shares
+Disallow: /api/digest/trigger
+
+# AI Agents & LLMs
+# See /llms.txt for LLM-friendly site description
+# See /agents.json for agent UI interaction instructions
+# See /.well-known/agent.json for A2A agent discovery card
