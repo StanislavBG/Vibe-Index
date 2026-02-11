@@ -4,11 +4,15 @@ import { z } from "zod";
 
 // === TABLE DEFINITIONS ===
 
+export const userRoleEnum = ["user", "admin"] as const;
+export type UserRole = (typeof userRoleEnum)[number];
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   clerkId: text("clerk_id").notNull().unique(),
   username: text("username").notNull().unique(),
   email: text("email").notNull().unique(),
+  role: text("role").notNull().default("user"), // "user" | "admin"
   freeListingsRemaining: integer("free_listings_remaining").notNull().default(3),
   paidListingCredits: integer("paid_listing_credits").notNull().default(0),
   likesRemaining: integer("likes_remaining").notNull().default(10),

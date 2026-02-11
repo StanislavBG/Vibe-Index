@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
-import { setupAuth, requireAuth, syncClerkUser } from "./auth";
+import { setupAuth, requireAuth, syncClerkUser, requireAdmin, seedAdminUsers } from "./auth";
 import { getAuth } from "@clerk/express";
 import { submitProjectSchema, subscribeSchema, createCommentSchema, createFeedbackSchema, submitSocialShareSchema } from "@shared/schema";
 import { runDigest, startDigestScheduler } from "./digest";
@@ -131,6 +131,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   setupAuth(app);
   await seedCategories();
   await seedCanonicalTags();
+  await seedAdminUsers();
   startVerificationScheduler();
   startDigestScheduler();
 
@@ -151,6 +152,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       clerkId: user.clerkId,
       username: user.username,
       email: user.email,
+      role: user.role,
       freeListingsRemaining: user.freeListingsRemaining,
       paidListingCredits: user.paidListingCredits,
       likesRemaining: user.likesRemaining,

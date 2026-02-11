@@ -3,11 +3,14 @@ import { useUser, useAuth as useClerkAuth, useClerk } from "@clerk/clerk-react";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 
+export type UserRole = "user" | "admin";
+
 export interface AuthUser {
   id: number;
   clerkId: string;
   username: string;
   email: string;
+  role: UserRole;
   freeListingsRemaining: number;
   paidListingCredits: number;
   likesRemaining: number;
