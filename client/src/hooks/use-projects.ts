@@ -428,6 +428,67 @@ export function useCreateTag() {
   });
 }
 
+// === FEEDBACK ===
+
+export interface FeedbackAnswer {
+  question: string;
+  answer: string;
+}
+
+export interface FeedbackData {
+  id: number;
+  projectId: number;
+  rating: number;
+  answers: string | null;
+  summary: string | null;
+  fingerprint: string;
+  createdAt: string;
+}
+
+export interface FeedbackListResponse {
+  feedback: FeedbackData[];
+  count: number;
+  averageRating: number | null;
+}
+
+export function useFeedback(projectId: number | null) {
+  return useQuery<FeedbackListResponse>({
+    queryKey: [`/api/projects/${projectId}/feedback`],
+    enabled: projectId !== null,
+    staleTime: 10 * 1000,
+  });
+}
+
+export function useCreateFeedback() {
+  return useMutation({
+    mutationFn: async ({ projectId, rating, answers, summary }: {
+      projectId: number;
+      rating: number;
+      answers?: FeedbackAnswer[];
+      summary?: string;
+    }) => {
+      const res = await apiRequest("POST", `/api/projects/${projectId}/feedback`, {
+        rating,
+        answers,
+        summary,
+      });
+      return res.json() as Promise<FeedbackData>;
+    },
+    onSuccess: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}/feedback`] });
+    },
+  });
+}
+
+export function useSummarizeFeedback() {
+  return useMutation({
+    mutationFn: async ({ rating, answers }: { rating: number; answers: FeedbackAnswer[] }) => {
+      const res = await apiRequest("POST", "/api/feedback/summarize", { rating, answers });
+      return res.json() as Promise<{ summary: string }>;
+    },
+  });
+}
+
 // === NOTIFICATIONS ===
 
 export interface NotificationData {

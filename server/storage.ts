@@ -4,12 +4,14 @@ import {
   categorySubscriptions, anonymousSubmissions, jobs, newsletterPreferences,
   comments, projectFollows, socialShares, creditLedger, notifications,
   emailSends, unsubscribeTokens, canonicalTags, tagSynonyms, projectTags,
+  feedback,
   type User, type InsertUser, type Project, type InsertProject,
   type Category, type InsertCategory, type Like, type CategorySubscription,
   type Job, type NewsletterPreference, type Comment, type ProjectFollow,
   type SocialShare, type CreditLedgerEntry, type Notification,
   type EmailSend, type UnsubscribeToken,
   type CanonicalTag, type InsertCanonicalTag, type TagSynonym, type ProjectTag,
+  type Feedback,
 } from "@shared/schema";
 import { eq, and, ilike, or, sql, desc, asc, count } from "drizzle-orm";
 
@@ -126,6 +128,12 @@ export interface IStorage {
   // Project Tags (junction)
   getProjectTags(projectId: number): Promise<CanonicalTag[]>;
   setProjectTags(projectId: number, canonicalTagIds: number[]): Promise<void>;
+
+  // Feedback
+  getFeedback(projectId: number): Promise<Feedback[]>;
+  createFeedback(projectId: number, rating: number, fingerprint: string, answers?: string, summary?: string): Promise<Feedback>;
+  getFeedbackCount(projectId: number): Promise<number>;
+  getAverageRating(projectId: number): Promise<number | null>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -792,6 +800,35 @@ export class DatabaseStorage implements IStorage {
     for (const tagId of added) {
       await this.incrementTagUsageCount(tagId, 1);
     }
+  }
+
+  // === FEEDBACK ===
+  async getFeedback(projectId: number): Promise<Feedback[]> {
+    return db.select().from(feedback)
+      .where(eq(feedback.projectId, projectId))
+      .orderBy(desc(feedback.createdAt));
+  }
+
+  async createFeedback(projectId: number, rating: number, fingerprint: string, answers?: string, summary?: string): Promise<Feedback> {
+    const [entry] = await db.insert(feedback).values({
+      projectId, rating, fingerprint,
+      answers: answers || null,
+      summary: summary || null,
+    }).returning();
+    return entry;
+  }
+
+  async getFeedbackCount(projectId: number): Promise<number> {
+    const [result] = await db.select({ value: count() }).from(feedback)
+      .where(eq(feedback.projectId, projectId));
+    return result.value;
+  }
+
+  async getAverageRating(projectId: number): Promise<number | null> {
+    const [result] = await db.select({
+      avg: sql<string>`ROUND(AVG(${feedback.rating})::numeric, 1)`,
+    }).from(feedback).where(eq(feedback.projectId, projectId));
+    return result.avg ? parseFloat(result.avg) : null;
   }
 
   // === DIGEST QUERIES ===
