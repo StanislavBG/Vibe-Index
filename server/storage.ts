@@ -24,6 +24,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   upsertUserFromClerk(clerkId: string, username: string, email: string): Promise<User>;
   updateUserCredits(id: number, updates: Partial<Pick<User, "freeListingsRemaining" | "paidListingCredits" | "likesRemaining">>): Promise<User | undefined>;
+  promoteUserToAdmin(email: string): Promise<void>;
 
   // Projects
   getProject(id: number): Promise<Project | undefined>;
@@ -181,6 +182,12 @@ export class DatabaseStorage implements IStorage {
   async updateUserCredits(id: number, updates: Partial<Pick<User, "freeListingsRemaining" | "paidListingCredits" | "likesRemaining">>): Promise<User | undefined> {
     const [user] = await db.update(users).set(updates).where(eq(users.id, id)).returning();
     return user;
+  }
+
+  async promoteUserToAdmin(email: string): Promise<void> {
+    await db.update(users)
+      .set({ role: "admin" })
+      .where(and(eq(users.email, email), sql`${users.role} != 'admin'`));
   }
 
   // === PROJECTS ===

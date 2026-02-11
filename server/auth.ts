@@ -2,7 +2,7 @@ import { clerkMiddleware, getAuth, requireAuth as clerkRequireAuth } from "@cler
 import { clerkClient } from "@clerk/express";
 import { storage } from "./storage";
 import { type Express, type Request, type Response, type NextFunction } from "express";
-import { type User } from "@shared/schema";
+import { type User, type UserRole } from "@shared/schema";
 
 declare global {
   namespace Express {
@@ -45,4 +45,33 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ message: "Authentication required" });
   }
   next();
+}
+
+/**
+ * Middleware: requires the user to have the "admin" role.
+ * Must be placed AFTER syncClerkUser so req.dbUser is available.
+ */
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.dbUser || req.dbUser.role !== "admin") {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  next();
+}
+
+// Emails that should be promoted to admin on first sync or server startup.
+// This is the single source of truth — no public endpoint can grant admin.
+const ADMIN_EMAILS: string[] = [
+  "stanislavbg@gmail.com",
+];
+
+/**
+ * Run once at startup: ensures every email in ADMIN_EMAILS has role = "admin".
+ * Safe to call repeatedly — it's a no-op if the user doesn't exist yet or is
+ * already admin. When the user signs up later, syncClerkUser will pick up
+ * the role from the DB normally.
+ */
+export async function seedAdminUsers(): Promise<void> {
+  for (const email of ADMIN_EMAILS) {
+    await storage.promoteUserToAdmin(email);
+  }
 }
