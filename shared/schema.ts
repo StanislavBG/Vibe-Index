@@ -115,6 +115,17 @@ export const comments = pgTable("comments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Anonymous feedback on projects (replaces comments UX)
+export const feedback = pgTable("feedback", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  rating: integer("rating").notNull(),
+  answers: text("answers"), // JSON string of { question: string; answer: string }[]
+  summary: text("summary"),
+  fingerprint: text("fingerprint").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Project follows
 export const projectFollows = pgTable("project_follows", {
   id: serial("id").primaryKey(),
@@ -220,6 +231,7 @@ export const insertAnonymousSubmissionSchema = createInsertSchema(anonymousSubmi
 export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertNewsletterPreferencesSchema = createInsertSchema(newsletterPreferences).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertCommentSchema = createInsertSchema(comments).omit({ id: true, createdAt: true });
+export const insertFeedbackSchema = createInsertSchema(feedback).omit({ id: true, createdAt: true });
 export const insertSocialShareSchema = createInsertSchema(socialShares).omit({ id: true, createdAt: true, verifiedAt: true });
 export const insertCanonicalTagSchema = createInsertSchema(canonicalTags).omit({ id: true, usageCount: true, createdAt: true });
 export const insertTagSynonymSchema = createInsertSchema(tagSynonyms).omit({ id: true, createdAt: true });
@@ -242,6 +254,15 @@ export const createCommentSchema = z.object({
   content: z.string().min(1).max(2000),
 });
 
+export const createFeedbackSchema = z.object({
+  rating: z.number().int().min(1).max(10),
+  answers: z.array(z.object({
+    question: z.string(),
+    answer: z.string(),
+  })).optional(),
+  summary: z.string().max(5000).optional(),
+});
+
 export const submitSocialShareSchema = z.object({
   projectId: z.number(),
   platform: z.enum(["twitter", "linkedin", "reddit", "mastodon", "facebook", "other"]),
@@ -261,6 +282,8 @@ export type CategorySubscription = typeof categorySubscriptions.$inferSelect;
 export type NewsletterPreference = typeof newsletterPreferences.$inferSelect;
 export type AnonymousSubmission = typeof anonymousSubmissions.$inferSelect;
 export type Comment = typeof comments.$inferSelect;
+export type Feedback = typeof feedback.$inferSelect;
+export type InsertFeedback = z.infer<typeof insertFeedbackSchema>;
 export type ProjectFollow = typeof projectFollows.$inferSelect;
 export type SocialShare = typeof socialShares.$inferSelect;
 export type CreditLedgerEntry = typeof creditLedger.$inferSelect;

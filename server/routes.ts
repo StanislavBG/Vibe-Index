@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { z } from "zod";
 import { setupAuth, requireAuth, syncClerkUser } from "./auth";
 import { getAuth } from "@clerk/express";
-import { submitProjectSchema, subscribeSchema, createCommentSchema, submitSocialShareSchema } from "@shared/schema";
+import { submitProjectSchema, subscribeSchema, createCommentSchema, createFeedbackSchema, submitSocialShareSchema } from "@shared/schema";
 import { runDigest, startDigestScheduler } from "./digest";
 import { isEmailConfigured } from "./email";
 import { processJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
@@ -817,6 +817,102 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const deleted = await storage.deleteComment(id, req.dbUser!.id);
     if (!deleted) return res.status(403).json({ message: "Cannot delete this comment" });
     res.json({ message: "Comment deleted" });
+  });
+
+  // ==========================================
+  // FEEDBACK (Anonymous)
+  // ==========================================
+  app.get("/api/projects/:id/feedback", async (req, res) => {
+    const projectId = parseInt(req.params.id as string);
+    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+    const feedbackList = await storage.getFeedback(projectId);
+    const feedbackCount = await storage.getFeedbackCount(projectId);
+    const averageRating = await storage.getAverageRating(projectId);
+    res.json({ feedback: feedbackList, count: feedbackCount, averageRating });
+  });
+
+  app.post("/api/projects/:id/feedback", async (req, res) => {
+    const projectId = parseInt(req.params.id as string);
+    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+    try {
+      const input = createFeedbackSchema.parse(req.body);
+      const project = await storage.getProject(projectId);
+      if (!project) return res.status(404).json({ message: "Project not found" });
+      // Anonymize: use hashed IP as fingerprint
+      const rawIp = req.ip || req.headers["x-forwarded-for"] as string || "unknown";
+      const fingerprint = crypto.createHash("sha256").update(rawIp + "vibe-feedback-salt").digest("hex").slice(0, 16);
+      const entry = await storage.createFeedback(
+        projectId,
+        input.rating,
+        fingerprint,
+        input.answers ? JSON.stringify(input.answers) : undefined,
+        input.summary || undefined,
+      );
+      res.status(201).json(entry);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.post("/api/feedback/summarize", async (req, res) => {
+    const { rating, answers } = req.body;
+    if (!rating || !Array.isArray(answers)) {
+      return res.status(400).json({ message: "rating and answers are required" });
+    }
+
+    const ratingLabels: Record<number, string> = {
+      1: "This is a vibe",
+      2: "AI slop",
+      3: "AI slop with a spark",
+      4: "Has potential, needs work",
+      5: "Not production-quality yet",
+      6: "Getting somewhere",
+      7: "Almost there",
+      8: "Could ship this one day",
+      9: "Nearly production-ready",
+      10: "Super Bowl commercial ready",
+    };
+
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (openaiKey) {
+      try {
+        const prompt = `Summarize this anonymous product feedback into 2-3 concise sentences. Be direct and constructive.\n\nRating: ${rating}/10 ("${ratingLabels[rating] || ""}")\n\nQ&A:\n${answers.map((a: { question: string; answer: string }) => `Q: ${a.question}\nA: ${a.answer}`).join("\n\n")}`;
+
+        const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openaiKey}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "system", content: "You are a concise feedback summarizer. Produce a short, anonymous summary of product feedback. Never mention or identify the reviewer." },
+              { role: "user", content: prompt },
+            ],
+            max_tokens: 200,
+            temperature: 0.5,
+          }),
+        });
+
+        if (openaiRes.ok) {
+          const data = await openaiRes.json() as { choices: { message: { content: string } }[] };
+          const summary = data.choices?.[0]?.message?.content?.trim();
+          if (summary) return res.json({ summary });
+        }
+      } catch {
+        // Fall through to manual summary
+      }
+    }
+
+    // Fallback: build a simple summary without AI
+    const label = ratingLabels[rating] || `${rating}/10`;
+    const answerTexts = answers
+      .filter((a: { answer: string }) => a.answer?.trim())
+      .map((a: { answer: string }) => a.answer.trim());
+    const summary = `Rated ${rating}/10 ("${label}"). ${answerTexts.join(" ")}`.trim();
+    res.json({ summary });
   });
 
   // ==========================================
