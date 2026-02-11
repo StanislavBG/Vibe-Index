@@ -94,6 +94,39 @@ const skills: AgentSkill[] = [
     },
   },
   {
+    id: "get-feedback",
+    name: "Get Project Feedback",
+    description:
+      "Submit a project URL (and optionally a Git repository URL) for in-depth analysis. Returns a structured feedback report with scores for presentation, documentation, discoverability, and completeness, plus actionable strengths and suggestions.",
+    tags: ["feedback", "analysis", "review", "assessment"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", format: "uri", description: "The project URL to analyze" },
+        repoUrl: { type: "string", format: "uri", description: "Optional Git repository URL (GitHub or GitLab) for deeper analysis" },
+      },
+      required: ["url"],
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        scores: {
+          type: "object",
+          properties: {
+            overall: { type: "number", description: "Overall score 1-10" },
+            presentation: { type: "number" },
+            documentation: { type: "number" },
+            discoverability: { type: "number" },
+            completeness: { type: "number" },
+          },
+        },
+        strengths: { type: "array", items: { type: "string" } },
+        suggestions: { type: "array", items: { type: "string" } },
+        summary: { type: "string" },
+      },
+    },
+  },
+  {
     id: "subscribe-updates",
     name: "Subscribe to Updates",
     description:

@@ -10,12 +10,13 @@
  * - get-project: Get detailed project info
  * - list-categories: List all categories
  * - publish-project: Submit a project URL
+ * - get-feedback: Get feedback report for a project URL + optional repo
  * - subscribe-updates: Subscribe to digest notifications
  */
 
 import type { SkillExecutor, SkillResult, Message, Part, DataPart, TextPart, Artifact } from "./types";
 import { storage } from "../storage";
-import { processJob } from "../scraper";
+import { processJob, processFeedbackJob } from "../scraper";
 import crypto from "crypto";
 
 // ============================================================
@@ -361,6 +362,88 @@ const publishProject: SkillExecutor = {
 };
 
 // ============================================================
+// Skill: get-feedback
+// ============================================================
+
+const getFeedback: SkillExecutor = {
+  skillId: "get-feedback",
+
+  async execute(input: Message): Promise<SkillResult> {
+    const params = extractInput(input);
+    const url = params.url as string;
+    const repoUrl = params.repoUrl as string | undefined;
+
+    if (!url) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing required field: url. Provide the project URL to analyze."))],
+        artifacts: [],
+      };
+    }
+
+    // Validate URL format
+    try {
+      new URL(url);
+    } catch {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Invalid URL: "${url}". Provide a valid URL starting with http:// or https://.`))],
+        artifacts: [],
+      };
+    }
+
+    if (repoUrl) {
+      try {
+        new URL(repoUrl);
+      } catch {
+        return {
+          status: "failed",
+          messages: [agentMessage(textPart(`Invalid repoUrl: "${repoUrl}". Provide a valid URL starting with http:// or https://.`))],
+          artifacts: [],
+        };
+      }
+    }
+
+    // Create a lightweight project entry + feedback job
+    const project = await storage.createProject({
+      url,
+      status: "pending",
+      claimed: false,
+    });
+
+    const job = await storage.createJob(project.id, {
+      type: "feedback",
+      repoUrl: repoUrl || undefined,
+    });
+
+    // Run synchronously so the agent gets the result immediately
+    await processFeedbackJob(job.id);
+
+    // Read the completed job
+    const completed = await storage.getJob(job.id);
+    if (!completed || completed.status !== "completed" || !completed.result) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Feedback analysis failed: ${completed?.error || "Unknown error"}`))],
+        artifacts: [],
+      };
+    }
+
+    const report = JSON.parse(completed.result);
+
+    return {
+      status: "completed",
+      messages: [
+        agentMessage(textPart(report.summary)),
+      ],
+      artifacts: [
+        artifact("feedback-report", "Feedback Report", report),
+      ],
+    };
+  },
+};
+
+// ============================================================
 // Skill: subscribe-updates
 // ============================================================
 
@@ -477,6 +560,7 @@ const executors: SkillExecutor[] = [
   getProject,
   listCategories,
   publishProject,
+  getFeedback,
   subscribeUpdates,
 ];
 

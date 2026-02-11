@@ -142,6 +142,7 @@ export function Navbar({ children }: { children?: React.ReactNode }) {
           <div className="flex items-center gap-5">
             {navLink("/", "Discover")}
             {navLink("/submit", "Submit")}
+            {navLink("/get-feedback", "Get Feedback")}
             {navLink("/subscribe", "Get Updates")}
           </div>
 
@@ -207,6 +208,9 @@ export function Navbar({ children }: { children?: React.ReactNode }) {
           </Link>
           <Link href="/submit" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
             Submit
+          </Link>
+          <Link href="/get-feedback" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
+            Get Feedback
           </Link>
           <Link href="/subscribe" onClick={() => setMenuOpen(false)} className="block py-2 text-sm font-medium">
             Get Updates
