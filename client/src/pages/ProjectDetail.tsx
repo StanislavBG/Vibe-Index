@@ -146,7 +146,12 @@ export default function ProjectDetail() {
     );
   }
 
-  const tags = project.tags?.split(",").map((t) => t.trim()).filter(Boolean) || [];
+  // Prefer canonical tags from the tagging service; fall back to legacy comma-separated tags
+  const canonicalTags = project.canonicalTags || [];
+  const legacyTags = project.tags?.split(",").map((t) => t.trim()).filter(Boolean) || [];
+  const displayTags = canonicalTags.length > 0
+    ? canonicalTags.map((t) => t.name)
+    : legacyTags;
 
   return (
     <div className="min-h-screen w-full relative">
@@ -239,9 +244,9 @@ export default function ProjectDetail() {
                 </div>
               )}
 
-              {tags.length > 0 && (
+              {displayTags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
-                  {tags.map((tag, i) => (
+                  {displayTags.map((tag, i) => (
                     <Badge key={i} variant="outline" className="rounded-md text-xs">
                       <Tag className="w-3 h-3 mr-1" />
                       {tag}

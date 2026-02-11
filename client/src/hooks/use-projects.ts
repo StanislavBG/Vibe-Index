@@ -9,6 +9,15 @@ export interface Category {
   icon: string | null;
 }
 
+export interface CanonicalTag {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  usageCount: number;
+  createdAt: string;
+}
+
 export interface Job {
   id: number;
   projectId: number;
@@ -106,7 +115,7 @@ export function useProjects(opts: {
 }
 
 export function useProject(id: number | null) {
-  return useQuery<Project & { categories: Category[]; liked: boolean; job: Job | null }>({
+  return useQuery<Project & { categories: Category[]; canonicalTags: CanonicalTag[]; liked: boolean; job: Job | null }>({
     queryKey: [`/api/projects/${id}`],
     enabled: id !== null,
     staleTime: 30 * 1000,
@@ -366,6 +375,56 @@ export function useBalance() {
   return useQuery<BalanceData>({
     queryKey: ["/api/balance"],
     staleTime: 30 * 1000,
+  });
+}
+
+// === TAGS (Controlled Vocabulary) ===
+
+export function useCanonicalTags(search?: string) {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  const queryString = params.toString();
+  const url = `/api/tags${queryString ? `?${queryString}` : ""}`;
+  return useQuery<CanonicalTag[]>({
+    queryKey: [url],
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useTagSuggestions(query: string) {
+  return useQuery<CanonicalTag[]>({
+    queryKey: [`/api/tags/suggest?q=${encodeURIComponent(query)}`],
+    enabled: query.trim().length > 0,
+    staleTime: 10 * 1000,
+  });
+}
+
+export interface TagResolution {
+  input: string;
+  normalized: string;
+  canonical: CanonicalTag | null;
+  isNew: boolean;
+  suggestions: CanonicalTag[];
+}
+
+export function useResolveTags() {
+  return useMutation({
+    mutationFn: async (tags: string[]) => {
+      const res = await apiRequest("POST", "/api/tags/resolve", { tags });
+      return res.json() as Promise<TagResolution[]>;
+    },
+  });
+}
+
+export function useCreateTag() {
+  return useMutation({
+    mutationFn: async (data: { name: string; synonyms?: string[] }) => {
+      const res = await apiRequest("POST", "/api/tags", data);
+      return res.json() as Promise<CanonicalTag>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tags"] });
+    },
   });
 }
 

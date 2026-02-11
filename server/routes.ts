@@ -8,6 +8,7 @@ import { submitProjectSchema, subscribeSchema, createCommentSchema, submitSocial
 import { runDigest, startDigestScheduler } from "./digest";
 import { isEmailConfigured } from "./email";
 import { processJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
+import { seedCanonicalTags, resolveTag, suggestTags, createCanonicalTag, addSynonym, resolveAndAttachTags, normalizeTag } from "./tagService";
 import crypto from "crypto";
 import multer from "multer";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
@@ -128,6 +129,7 @@ function startVerificationScheduler() {
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   setupAuth(app);
   await seedCategories();
+  await seedCanonicalTags();
   startVerificationScheduler();
   startDigestScheduler();
 
@@ -274,7 +276,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         followed = !!follow;
       }
     }
-    res.json({ ...project, categories: cats, liked, followed, job: job || null });
+    const canonicalTagList = await storage.getProjectTags(id);
+    res.json({ ...project, categories: cats, canonicalTags: canonicalTagList, liked, followed, job: job || null });
   });
 
   app.post("/api/projects", async (req, res) => {
@@ -518,6 +521,101 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const category = await storage.getCategoryBySlug(req.params.slug as string);
     if (!category) return res.status(404).json({ message: "Category not found" });
     res.json(category);
+  });
+
+  // ==========================================
+  // TAGS — Controlled Vocabulary Service
+  // ==========================================
+
+  // List all canonical tags (with optional search)
+  app.get("/api/tags", async (req, res) => {
+    const search = req.query.search as string | undefined;
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
+    const tags = await storage.getCanonicalTags({ search, limit });
+    res.json(tags);
+  });
+
+  // Suggest canonical tags for partial input (autocomplete)
+  app.get("/api/tags/suggest", async (req, res) => {
+    const q = req.query.q as string;
+    if (!q || !q.trim()) return res.json([]);
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+    const suggestions = await suggestTags(q, limit);
+    res.json(suggestions);
+  });
+
+  // Resolve raw tags to canonical tags (batch)
+  app.post("/api/tags/resolve", async (req, res) => {
+    const { tags: rawTags } = req.body;
+    if (!Array.isArray(rawTags)) return res.status(400).json({ message: "tags must be an array of strings" });
+
+    const results = [];
+    for (const raw of rawTags) {
+      if (typeof raw !== "string") continue;
+      const result = await resolveTag(raw);
+      results.push({
+        input: raw,
+        normalized: normalizeTag(raw),
+        canonical: result.canonical,
+        isNew: result.isNew,
+        suggestions: result.suggestions,
+      });
+    }
+    res.json(results);
+  });
+
+  // Create a new canonical tag (with optional synonyms)
+  app.post("/api/tags", async (req, res) => {
+    const { name, synonyms } = req.body;
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ message: "name is required" });
+    }
+
+    try {
+      const tag = await createCanonicalTag(name.trim());
+
+      // Optionally register synonyms
+      if (Array.isArray(synonyms)) {
+        for (const syn of synonyms) {
+          if (typeof syn === "string" && syn.trim()) {
+            await addSynonym(syn.trim(), tag.id);
+          }
+        }
+      }
+
+      const tagSynonyms = await storage.getSynonymsForTag(tag.id);
+      res.status(201).json({ ...tag, synonyms: tagSynonyms });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create tag";
+      res.status(400).json({ message });
+    }
+  });
+
+  // Add a synonym to a canonical tag
+  app.post("/api/tags/:id/synonyms", async (req, res) => {
+    const tagId = parseInt(req.params.id as string);
+    if (isNaN(tagId)) return res.status(400).json({ message: "Invalid tag ID" });
+    const { synonym } = req.body;
+    if (!synonym || typeof synonym !== "string" || !synonym.trim()) {
+      return res.status(400).json({ message: "synonym is required" });
+    }
+
+    try {
+      await addSynonym(synonym.trim(), tagId);
+      const synonyms = await storage.getSynonymsForTag(tagId);
+      res.json(synonyms);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to add synonym";
+      res.status(400).json({ message });
+    }
+  });
+
+  // Get canonical tags for a specific project
+  app.get("/api/projects/:id/tags", async (req, res) => {
+    const projectId = parseInt(req.params.id as string);
+    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+    const tags = await storage.getProjectTags(projectId);
+    res.json(tags);
   });
 
   // ==========================================

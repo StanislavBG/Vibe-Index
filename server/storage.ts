@@ -3,12 +3,13 @@ import {
   users, projects, categories, projectCategories, likes,
   categorySubscriptions, anonymousSubmissions, jobs, newsletterPreferences,
   comments, projectFollows, socialShares, creditLedger, notifications,
-  emailSends, unsubscribeTokens,
+  emailSends, unsubscribeTokens, canonicalTags, tagSynonyms, projectTags,
   type User, type InsertUser, type Project, type InsertProject,
   type Category, type InsertCategory, type Like, type CategorySubscription,
   type Job, type NewsletterPreference, type Comment, type ProjectFollow,
   type SocialShare, type CreditLedgerEntry, type Notification,
   type EmailSend, type UnsubscribeToken,
+  type CanonicalTag, type InsertCanonicalTag, type TagSynonym, type ProjectTag,
 } from "@shared/schema";
 import { eq, and, ilike, or, sql, desc, asc, count } from "drizzle-orm";
 
@@ -109,6 +110,22 @@ export interface IStorage {
   // Digest queries
   getDigestEligibleUsers(frequency: string): Promise<(User & { prefs: NewsletterPreference; categoryIds: number[] })[]>;
   getProjectsForDigest(categoryIds: number[], pricingFilter: string | null, excludeProjectIds: number[], limit: number): Promise<Project[]>;
+
+  // Canonical Tags
+  getCanonicalTags(opts?: { search?: string; limit?: number }): Promise<CanonicalTag[]>;
+  getCanonicalTag(id: number): Promise<CanonicalTag | undefined>;
+  getCanonicalTagBySlug(slug: string): Promise<CanonicalTag | undefined>;
+  createCanonicalTag(tag: InsertCanonicalTag): Promise<CanonicalTag>;
+  incrementTagUsageCount(tagId: number, delta: number): Promise<void>;
+
+  // Tag Synonyms
+  getSynonymByValue(synonym: string): Promise<(TagSynonym & { canonicalTag: CanonicalTag }) | undefined>;
+  getSynonymsForTag(canonicalTagId: number): Promise<TagSynonym[]>;
+  createSynonym(synonym: string, canonicalTagId: number): Promise<TagSynonym>;
+
+  // Project Tags (junction)
+  getProjectTags(projectId: number): Promise<CanonicalTag[]>;
+  setProjectTags(projectId: number, canonicalTagIds: number[]): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -668,6 +685,113 @@ export class DatabaseStorage implements IStorage {
   async deleteAllSubscriptions(userId: number): Promise<void> {
     await db.delete(categorySubscriptions).where(eq(categorySubscriptions.userId, userId));
     await db.delete(newsletterPreferences).where(eq(newsletterPreferences.userId, userId));
+  }
+
+  // === CANONICAL TAGS ===
+  async getCanonicalTags(opts: { search?: string; limit?: number } = {}): Promise<CanonicalTag[]> {
+    const { search, limit = 100 } = opts;
+    if (search && search.trim()) {
+      const term = `%${search.trim().toLowerCase()}%`;
+      return db.select().from(canonicalTags)
+        .where(or(
+          ilike(canonicalTags.name, term),
+          ilike(canonicalTags.slug, term),
+        ))
+        .orderBy(desc(canonicalTags.usageCount))
+        .limit(limit);
+    }
+    return db.select().from(canonicalTags)
+      .orderBy(desc(canonicalTags.usageCount))
+      .limit(limit);
+  }
+
+  async getCanonicalTag(id: number): Promise<CanonicalTag | undefined> {
+    const [tag] = await db.select().from(canonicalTags).where(eq(canonicalTags.id, id));
+    return tag;
+  }
+
+  async getCanonicalTagBySlug(slug: string): Promise<CanonicalTag | undefined> {
+    const [tag] = await db.select().from(canonicalTags).where(eq(canonicalTags.slug, slug));
+    return tag;
+  }
+
+  async createCanonicalTag(tag: InsertCanonicalTag): Promise<CanonicalTag> {
+    const [created] = await db.insert(canonicalTags).values(tag).returning();
+    return created;
+  }
+
+  async incrementTagUsageCount(tagId: number, delta: number): Promise<void> {
+    await db.update(canonicalTags).set({
+      usageCount: sql`GREATEST(${canonicalTags.usageCount} + ${delta}, 0)`,
+    }).where(eq(canonicalTags.id, tagId));
+  }
+
+  // === TAG SYNONYMS ===
+  async getSynonymByValue(synonym: string): Promise<(TagSynonym & { canonicalTag: CanonicalTag }) | undefined> {
+    const [row] = await db.select({
+      synonym: tagSynonyms,
+      canonicalTag: canonicalTags,
+    })
+      .from(tagSynonyms)
+      .innerJoin(canonicalTags, eq(tagSynonyms.canonicalTagId, canonicalTags.id))
+      .where(eq(tagSynonyms.synonym, synonym));
+    if (!row) return undefined;
+    return { ...row.synonym, canonicalTag: row.canonicalTag };
+  }
+
+  async getSynonymsForTag(canonicalTagId: number): Promise<TagSynonym[]> {
+    return db.select().from(tagSynonyms)
+      .where(eq(tagSynonyms.canonicalTagId, canonicalTagId));
+  }
+
+  async createSynonym(synonym: string, canonicalTagId: number): Promise<TagSynonym> {
+    const [created] = await db.insert(tagSynonyms)
+      .values({ synonym, canonicalTagId })
+      .onConflictDoNothing()
+      .returning();
+    if (!created) {
+      const [existing] = await db.select().from(tagSynonyms)
+        .where(eq(tagSynonyms.synonym, synonym));
+      return existing;
+    }
+    return created;
+  }
+
+  // === PROJECT TAGS ===
+  async getProjectTags(projectId: number): Promise<CanonicalTag[]> {
+    const rows = await db.select({ tag: canonicalTags })
+      .from(projectTags)
+      .innerJoin(canonicalTags, eq(projectTags.canonicalTagId, canonicalTags.id))
+      .where(eq(projectTags.projectId, projectId))
+      .orderBy(desc(canonicalTags.usageCount));
+    return rows.map(r => r.tag);
+  }
+
+  async setProjectTags(projectId: number, canonicalTagIds: number[]): Promise<void> {
+    // Get existing tags to adjust usage counts
+    const existing = await db.select().from(projectTags)
+      .where(eq(projectTags.projectId, projectId));
+    const existingIds = existing.map(e => e.canonicalTagId);
+
+    // Decrement removed tags
+    const removed = existingIds.filter(id => !canonicalTagIds.includes(id));
+    for (const tagId of removed) {
+      await this.incrementTagUsageCount(tagId, -1);
+    }
+
+    // Delete all and re-insert
+    await db.delete(projectTags).where(eq(projectTags.projectId, projectId));
+    if (canonicalTagIds.length > 0) {
+      await db.insert(projectTags).values(
+        canonicalTagIds.map(canonicalTagId => ({ projectId, canonicalTagId }))
+      );
+    }
+
+    // Increment new tags
+    const added = canonicalTagIds.filter(id => !existingIds.includes(id));
+    for (const tagId of added) {
+      await this.incrementTagUsageCount(tagId, 1);
+    }
   }
 
   // === DIGEST QUERIES ===

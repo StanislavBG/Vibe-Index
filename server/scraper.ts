@@ -1,4 +1,5 @@
 import { storage } from "./storage";
+import { resolveAndAttachTags } from "./tagService";
 
 export interface ScrapedData {
   name: string;
@@ -386,6 +387,11 @@ export async function approveAndPublish(jobId: number): Promise<void> {
 
   if (categoryIds.length > 0) {
     await storage.setProjectCategories(job.projectId, categoryIds);
+  }
+
+  // Resolve tags through the tagging service (canonical vocabulary)
+  if (scraped.tags.length > 0) {
+    await resolveAndAttachTags(scraped.tags, job.projectId);
   }
 
   // Mark job completed
