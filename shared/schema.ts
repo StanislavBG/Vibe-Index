@@ -184,6 +184,32 @@ export const unsubscribeTokens = pgTable("unsubscribe_tokens", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// === TAGGING SYSTEM (Controlled Vocabulary) ===
+
+export const canonicalTags = pgTable("canonical_tags", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),          // Display name, e.g. "User Experience"
+  slug: text("slug").notNull().unique(),  // Normalized form, e.g. "user experience"
+  description: text("description"),
+  usageCount: integer("usage_count").notNull().default(0), // Denormalized count for sorting
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const tagSynonyms = pgTable("tag_synonyms", {
+  id: serial("id").primaryKey(),
+  synonym: text("synonym").notNull().unique(), // Normalized synonym, e.g. "ux"
+  canonicalTagId: integer("canonical_tag_id").notNull().references(() => canonicalTags.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const projectTags = pgTable("project_tags", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  canonicalTagId: integer("canonical_tag_id").notNull().references(() => canonicalTags.id, { onDelete: "cascade" }),
+}, (table) => [
+  uniqueIndex("project_tag_idx").on(table.projectId, table.canonicalTagId),
+]);
+
 // === BASE SCHEMAS ===
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, likesCount: true, createdAt: true, updatedAt: true });
@@ -195,6 +221,8 @@ export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, created
 export const insertNewsletterPreferencesSchema = createInsertSchema(newsletterPreferences).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertCommentSchema = createInsertSchema(comments).omit({ id: true, createdAt: true });
 export const insertSocialShareSchema = createInsertSchema(socialShares).omit({ id: true, createdAt: true, verifiedAt: true });
+export const insertCanonicalTagSchema = createInsertSchema(canonicalTags).omit({ id: true, usageCount: true, createdAt: true });
+export const insertTagSynonymSchema = createInsertSchema(tagSynonyms).omit({ id: true, createdAt: true });
 
 // === CUSTOM VALIDATION SCHEMAS ===
 
@@ -239,3 +267,8 @@ export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type EmailSend = typeof emailSends.$inferSelect;
 export type UnsubscribeToken = typeof unsubscribeTokens.$inferSelect;
+export type CanonicalTag = typeof canonicalTags.$inferSelect;
+export type InsertCanonicalTag = z.infer<typeof insertCanonicalTagSchema>;
+export type TagSynonym = typeof tagSynonyms.$inferSelect;
+export type InsertTagSynonym = z.infer<typeof insertTagSynonymSchema>;
+export type ProjectTag = typeof projectTags.$inferSelect;

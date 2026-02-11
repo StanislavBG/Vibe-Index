@@ -1,7 +1,7 @@
 import { useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Heart, ExternalLink, Clock } from "lucide-react";
+import { Heart, ExternalLink, Clock, Tag } from "lucide-react";
 import { type Project } from "@/hooks/use-projects";
 import { timeAgo } from "@/lib/time";
 
@@ -13,8 +13,17 @@ function getDomainFromUrl(url: string): string {
   }
 }
 
+function getDisplayTags(project: Project): string[] {
+  // Use legacy comma-separated tags field (canonical tags are resolved server-side on publish)
+  if (project.tags) {
+    return project.tags.split(",").map((t) => t.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 export function ProjectCard({ project }: { project: Project }) {
   const [, navigate] = useLocation();
+  const tags = getDisplayTags(project);
 
   return (
     <Card
@@ -38,15 +47,30 @@ export function ProjectCard({ project }: { project: Project }) {
       </div>
 
       {project.shortDescription && (
-        <p className="text-sm text-muted-foreground line-clamp-2 mb-4 flex-1">
+        <p className="text-sm text-muted-foreground line-clamp-2 mb-3 flex-1">
           {project.shortDescription}
         </p>
       )}
 
       {!project.shortDescription && (
-        <p className="text-sm text-muted-foreground/50 italic mb-4 flex-1">
+        <p className="text-sm text-muted-foreground/50 italic mb-3 flex-1">
           No description provided
         </p>
+      )}
+
+      {/* Tags row */}
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-3">
+          {tags.slice(0, 4).map((tag) => (
+            <Badge key={tag} variant="outline" className="text-[10px] rounded-md gap-0.5 px-1.5 py-0 h-5 text-muted-foreground">
+              <Tag className="w-2.5 h-2.5" />
+              {tag}
+            </Badge>
+          ))}
+          {tags.length > 4 && (
+            <span className="text-[10px] text-muted-foreground self-center">+{tags.length - 4}</span>
+          )}
+        </div>
       )}
 
       <div className="flex items-center justify-between mt-auto pt-3 border-t border-border/50">

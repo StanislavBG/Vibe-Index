@@ -1,9 +1,9 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Pencil, Mic, MicOff, Send, Check, Loader2, Tag, X,
-  ArrowRight, RotateCcw, DollarSign
+  ArrowRight, RotateCcw, DollarSign, Plus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   useUpdateDraft, useRefineDraft, useVoiceRefine, useApproveDraft,
-  type DraftData
+  useTagSuggestions,
+  type DraftData, type CanonicalTag
 } from "@/hooks/use-projects";
 import { useToast } from "@/hooks/use-toast";
 
@@ -24,6 +25,169 @@ const PRICING_LABELS: Record<string, string> = {
   "one-time": "One-time",
   mixed: "Freemium",
 };
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
+// Tag input component with autocomplete from canonical vocabulary
+function TagInput({
+  tags,
+  onAdd,
+  onRemove,
+}: {
+  tags: string[];
+  onAdd: (tag: string) => void;
+  onRemove: (tag: string) => void;
+}) {
+  const [input, setInput] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const debouncedInput = useDebounce(input, 200);
+  const { data: suggestions } = useTagSuggestions(debouncedInput);
+
+  // Filter out tags that are already added
+  const filteredSuggestions = (suggestions || []).filter(
+    (s) => !tags.some((t) => t.toLowerCase() === s.name.toLowerCase() || t.toLowerCase() === s.slug)
+  );
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const addTag = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed && !tags.some((t) => t.toLowerCase() === trimmed.toLowerCase())) {
+      onAdd(trimmed);
+    }
+    setInput("");
+    setShowSuggestions(false);
+    setSelectedIndex(0);
+    inputRef.current?.focus();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (filteredSuggestions.length > 0 && showSuggestions) {
+        addTag(filteredSuggestions[selectedIndex]?.name || input);
+      } else if (input.trim()) {
+        addTag(input);
+      }
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIndex((prev) => Math.min(prev + 1, filteredSuggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIndex((prev) => Math.max(prev - 1, 0));
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
+    } else if (e.key === "Backspace" && !input && tags.length > 0) {
+      onRemove(tags[tags.length - 1]);
+    }
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div className="flex flex-wrap gap-1.5 mb-1.5">
+        {tags.map((tag) => (
+          <Badge key={tag} variant="secondary" className="text-xs rounded-md gap-1">
+            <Tag className="w-2.5 h-2.5" />
+            {tag}
+            <button onClick={() => onRemove(tag)} className="ml-0.5 hover:text-destructive">
+              <X className="w-2.5 h-2.5" />
+            </button>
+          </Badge>
+        ))}
+      </div>
+      <div className="relative">
+        <Input
+          ref={inputRef}
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setShowSuggestions(true);
+            setSelectedIndex(0);
+          }}
+          onFocus={() => input.trim() && setShowSuggestions(true)}
+          onKeyDown={handleKeyDown}
+          placeholder={tags.length > 0 ? "Add more tags..." : "Type to search tags..."}
+          className="h-8 text-xs"
+        />
+        {/* Suggestions dropdown */}
+        <AnimatePresence>
+          {showSuggestions && input.trim() && filteredSuggestions.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg overflow-hidden"
+            >
+              {filteredSuggestions.slice(0, 8).map((tag, i) => (
+                <button
+                  key={tag.id}
+                  onClick={() => addTag(tag.name)}
+                  className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors ${
+                    i === selectedIndex ? "bg-accent text-accent-foreground" : "hover:bg-muted"
+                  }`}
+                >
+                  <Tag className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                  <span className="font-medium">{tag.name}</span>
+                  {tag.usageCount > 0 && (
+                    <span className="ml-auto text-[10px] text-muted-foreground">{tag.usageCount} uses</span>
+                  )}
+                </button>
+              ))}
+              {input.trim() && !filteredSuggestions.some((s) => s.slug === input.trim().toLowerCase().replace(/[-_]/g, " ")) && (
+                <button
+                  onClick={() => addTag(input.trim())}
+                  className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 border-t border-border hover:bg-muted transition-colors"
+                >
+                  <Plus className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                  <span>Create &quot;{input.trim()}&quot;</span>
+                </button>
+              )}
+            </motion.div>
+          )}
+          {showSuggestions && input.trim() && filteredSuggestions.length === 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg overflow-hidden"
+            >
+              <button
+                onClick={() => addTag(input.trim())}
+                className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-muted transition-colors"
+              >
+                <Plus className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                <span>Create &quot;{input.trim()}&quot;</span>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+      {tags.length === 0 && !input && (
+        <span className="text-[10px] text-muted-foreground">No tags detected</span>
+      )}
+    </div>
+  );
+}
 
 export function DraftEditor({
   jobId,
@@ -132,6 +296,16 @@ export function DraftEditor({
     handleFieldUpdate({ tags: newTags });
   };
 
+  const addTag = (tag: string) => {
+    if (draft.tags.length >= 10) {
+      toast({ title: "Tag limit", description: "Maximum 10 tags per project.", variant: "destructive" });
+      return;
+    }
+    const newTags = [...draft.tags, tag];
+    setDraft({ ...draft, tags: newTags });
+    handleFieldUpdate({ tags: newTags });
+  };
+
   return (
     <div className="space-y-4">
       {/* Draft preview card */}
@@ -195,22 +369,25 @@ export function DraftEditor({
         {/* Tags */}
         <div className="space-y-1">
           <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Tags</label>
-          <div className="flex flex-wrap gap-1.5">
-            {draft.tags.map((tag) => (
-              <Badge key={tag} variant="secondary" className="text-xs rounded-md gap-1">
-                <Tag className="w-2.5 h-2.5" />
-                {tag}
-                {editMode === "type" && (
-                  <button onClick={() => removeTag(tag)} className="ml-0.5 hover:text-destructive">
-                    <X className="w-2.5 h-2.5" />
-                  </button>
-                )}
-              </Badge>
-            ))}
-            {draft.tags.length === 0 && (
-              <span className="text-xs text-muted-foreground">No tags detected</span>
-            )}
-          </div>
+          {editMode === "type" ? (
+            <TagInput
+              tags={draft.tags}
+              onAdd={addTag}
+              onRemove={removeTag}
+            />
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {draft.tags.map((tag) => (
+                <Badge key={tag} variant="secondary" className="text-xs rounded-md gap-1">
+                  <Tag className="w-2.5 h-2.5" />
+                  {tag}
+                </Badge>
+              ))}
+              {draft.tags.length === 0 && (
+                <span className="text-xs text-muted-foreground">No tags detected</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Pricing + Categories row */}
