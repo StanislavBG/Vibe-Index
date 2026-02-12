@@ -12,11 +12,25 @@
  * - publish-project: Submit a project URL
  * - subscribe-updates: Subscribe to digest notifications
  * - register-user: Register a new user account via A2A
+ * - get-profile: Get authenticated user's profile
+ * - get-my-projects: List user's own projects
+ * - update-project: Update own project
+ * - delete-project: Delete own project
+ * - get-job-status: Poll scraping/analysis job status
+ * - edit-draft: Edit or refine a project draft
+ * - approve-draft: Approve and publish a draft
+ * - like-project: Like or unlike a project
+ * - follow-project: Follow or unfollow a project
+ * - post-comment: Post a comment on a project
+ * - delete-comment: Delete own comment
+ * - submit-feedback: Submit anonymous feedback
+ * - get-balance: Get credit balance
+ * - get-notifications: Get notifications
  */
 
 import type { SkillExecutor, SkillResult, Message, Part, DataPart, TextPart, Artifact } from "./types";
 import { storage } from "../storage";
-import { processJob } from "../scraper";
+import { processJob, approveAndPublish, refineDraft, type ScrapedData } from "../scraper";
 import { clerkClient } from "@clerk/express";
 import crypto from "crypto";
 
@@ -471,6 +485,880 @@ const subscribeUpdates: SkillExecutor = {
 };
 
 // ============================================================
+// Skill: get-profile
+// ============================================================
+
+const getProfile: SkillExecutor = {
+  skillId: "get-profile",
+
+  async execute(_input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
+    const userId = metadata?.userId as number | undefined;
+    if (!userId) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Authentication required. Provide a valid Bearer token."))],
+        artifacts: [],
+      };
+    }
+
+    const user = await storage.getUser(userId);
+    if (!user) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("User not found."))],
+        artifacts: [],
+      };
+    }
+
+    return {
+      status: "completed",
+      messages: [agentMessage(textPart(`Profile for "${user.username}".`))],
+      artifacts: [
+        artifact("user-profile", "User Profile", {
+          id: user.id,
+          clerkId: user.clerkId,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+          freeListingsRemaining: user.freeListingsRemaining,
+          paidListingCredits: user.paidListingCredits,
+          likesRemaining: user.likesRemaining,
+          createdAt: user.createdAt,
+        }),
+      ],
+    };
+  },
+};
+
+// ============================================================
+// Skill: get-my-projects
+// ============================================================
+
+const getMyProjects: SkillExecutor = {
+  skillId: "get-my-projects",
+
+  async execute(_input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
+    const userId = metadata?.userId as number | undefined;
+    if (!userId) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Authentication required."))],
+        artifacts: [],
+      };
+    }
+
+    const projects = await storage.getProjectsByOwner(userId);
+    const withJobs = await Promise.all(
+      projects.map(async (p) => {
+        const job = await storage.getJobByProject(p.id);
+        return {
+          id: p.id,
+          name: p.name,
+          url: p.url,
+          shortDescription: p.shortDescription,
+          pricingModel: p.pricingModel,
+          status: p.status,
+          likesCount: p.likesCount,
+          followsCount: p.followsCount,
+          commentsCount: p.commentsCount,
+          createdAt: p.createdAt,
+          job: job ? { id: job.id, status: job.status, step: job.step } : null,
+        };
+      }),
+    );
+
+    return {
+      status: "completed",
+      messages: [agentMessage(textPart(`You have ${withJobs.length} project${withJobs.length !== 1 ? "s" : ""}.`))],
+      artifacts: [artifact("my-projects", "My Projects", withJobs)],
+    };
+  },
+};
+
+// ============================================================
+// Skill: update-project
+// ============================================================
+
+const updateProject: SkillExecutor = {
+  skillId: "update-project",
+
+  async execute(input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
+    const userId = metadata?.userId as number | undefined;
+    if (!userId) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Authentication required."))],
+        artifacts: [],
+      };
+    }
+
+    const params = extractInput(input);
+    const projectId = Number(params.projectId);
+    if (!projectId || isNaN(projectId)) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing or invalid projectId."))],
+        artifacts: [],
+      };
+    }
+
+    const project = await storage.getProject(projectId);
+    if (!project) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Project ${projectId} not found.`))],
+        artifacts: [],
+      };
+    }
+
+    if (project.ownerId !== userId) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Not authorized. You can only update your own projects."))],
+        artifacts: [],
+      };
+    }
+
+    const updates: Record<string, unknown> = {};
+    for (const field of ["name", "shortDescription", "longDescription", "pricingModel", "pricingDetails", "demoUrl", "docsUrl", "repoUrl", "tags"]) {
+      if (params[field] !== undefined) updates[field] = params[field];
+    }
+
+    const categoryIds = params.categoryIds as number[] | undefined;
+
+    const updated = await storage.updateProject(projectId, updates);
+    if (categoryIds && Array.isArray(categoryIds)) {
+      await storage.setProjectCategories(projectId, categoryIds);
+    }
+
+    const cats = await storage.getProjectCategories(projectId);
+
+    return {
+      status: "completed",
+      messages: [agentMessage(textPart(`Project "${updated?.name || project.name}" updated.`))],
+      artifacts: [
+        artifact("updated-project", "Updated Project", {
+          ...updated,
+          categories: cats.map((c) => ({ id: c.id, name: c.name, slug: c.slug })),
+        }),
+      ],
+    };
+  },
+};
+
+// ============================================================
+// Skill: delete-project
+// ============================================================
+
+const deleteProject: SkillExecutor = {
+  skillId: "delete-project",
+
+  async execute(input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
+    const userId = metadata?.userId as number | undefined;
+    if (!userId) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Authentication required."))],
+        artifacts: [],
+      };
+    }
+
+    const params = extractInput(input);
+    const projectId = Number(params.projectId);
+    if (!projectId || isNaN(projectId)) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing or invalid projectId."))],
+        artifacts: [],
+      };
+    }
+
+    const project = await storage.getProject(projectId);
+    if (!project) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Project ${projectId} not found.`))],
+        artifacts: [],
+      };
+    }
+
+    if (project.ownerId !== userId) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Not authorized. You can only delete your own projects."))],
+        artifacts: [],
+      };
+    }
+
+    await storage.deleteProject(projectId);
+
+    // Refund credit (same logic as REST)
+    const user = await storage.getUser(userId);
+    if (user) {
+      if (user.freeListingsRemaining < 3) {
+        await storage.updateUserCredits(user.id, { freeListingsRemaining: user.freeListingsRemaining + 1 });
+      } else {
+        await storage.updateUserCredits(user.id, { paidListingCredits: user.paidListingCredits + 1 });
+      }
+    }
+
+    return {
+      status: "completed",
+      messages: [agentMessage(textPart(`Project "${project.name || projectId}" deleted. Listing credit refunded.`))],
+      artifacts: [],
+    };
+  },
+};
+
+// ============================================================
+// Skill: get-job-status
+// ============================================================
+
+const getJobStatus: SkillExecutor = {
+  skillId: "get-job-status",
+
+  async execute(input: Message): Promise<SkillResult> {
+    const params = extractInput(input);
+    const jobId = Number(params.jobId);
+
+    if (!jobId || isNaN(jobId)) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing or invalid jobId."))],
+        artifacts: [],
+      };
+    }
+
+    const job = await storage.getJob(jobId);
+    if (!job) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Job ${jobId} not found.`))],
+        artifacts: [],
+      };
+    }
+
+    const result: Record<string, unknown> = {
+      id: job.id,
+      projectId: job.projectId,
+      status: job.status,
+      step: job.step,
+      stepDetail: job.stepDetail,
+      error: job.error,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    };
+
+    // Include draft data if in review
+    if (job.status === "review" && job.result) {
+      try {
+        result.draft = JSON.parse(job.result);
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    return {
+      status: "completed",
+      messages: [agentMessage(textPart(`Job #${jobId}: ${job.status} (step: ${job.step}).`))],
+      artifacts: [artifact("job-status", "Job Status", result)],
+    };
+  },
+};
+
+// ============================================================
+// Skill: edit-draft
+// ============================================================
+
+const editDraft: SkillExecutor = {
+  skillId: "edit-draft",
+
+  async execute(input: Message): Promise<SkillResult> {
+    const params = extractInput(input);
+    const jobId = Number(params.jobId);
+
+    if (!jobId || isNaN(jobId)) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing or invalid jobId."))],
+        artifacts: [],
+      };
+    }
+
+    const job = await storage.getJob(jobId);
+    if (!job) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Job ${jobId} not found.`))],
+        artifacts: [],
+      };
+    }
+
+    if (job.status !== "review") {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Job is not in review state (current: ${job.status}). Only drafts in review can be edited.`))],
+        artifacts: [],
+      };
+    }
+
+    if (!job.result) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("No draft data available to edit."))],
+        artifacts: [],
+      };
+    }
+
+    const current: ScrapedData = JSON.parse(job.result);
+
+    // Check if text feedback is provided (refine mode)
+    const feedback = params.feedback as string | undefined;
+    if (feedback) {
+      const refined = refineDraft(current, feedback);
+      await storage.updateJob(jobId, { result: JSON.stringify(refined) });
+      return {
+        status: "completed",
+        messages: [agentMessage(textPart("Draft refined with your feedback."))],
+        artifacts: [artifact("draft", "Refined Draft", refined as unknown as Record<string, unknown>)],
+      };
+    }
+
+    // Otherwise apply direct field edits
+    const updated: ScrapedData = { ...current };
+    for (const field of ["name", "shortDescription", "longDescription", "pricingModel", "pricingDetails", "tags", "suggestedCategories", "demoUrl", "docsUrl", "repoUrl"] as const) {
+      if (params[field] !== undefined) {
+        (updated as Record<string, unknown>)[field] = params[field];
+      }
+    }
+
+    await storage.updateJob(jobId, { result: JSON.stringify(updated) });
+
+    return {
+      status: "completed",
+      messages: [agentMessage(textPart("Draft updated."))],
+      artifacts: [artifact("draft", "Updated Draft", updated as unknown as Record<string, unknown>)],
+    };
+  },
+};
+
+// ============================================================
+// Skill: approve-draft
+// ============================================================
+
+const approveDraft: SkillExecutor = {
+  skillId: "approve-draft",
+
+  async execute(input: Message): Promise<SkillResult> {
+    const params = extractInput(input);
+    const jobId = Number(params.jobId);
+
+    if (!jobId || isNaN(jobId)) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing or invalid jobId."))],
+        artifacts: [],
+      };
+    }
+
+    const job = await storage.getJob(jobId);
+    if (!job) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Job ${jobId} not found.`))],
+        artifacts: [],
+      };
+    }
+
+    if (job.status !== "review") {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Job is not in review state (current: ${job.status}).`))],
+        artifacts: [],
+      };
+    }
+
+    try {
+      await approveAndPublish(jobId);
+      const project = await storage.getProject(job.projectId);
+
+      return {
+        status: "completed",
+        messages: [agentMessage(textPart(`Project "${project?.name}" approved and published!`))],
+        artifacts: [
+          artifact("published-project", "Published Project", {
+            projectId: job.projectId,
+            name: project?.name,
+            url: project?.url,
+            status: project?.status,
+          }),
+        ],
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to publish";
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Approval failed: ${message}`))],
+        artifacts: [],
+      };
+    }
+  },
+};
+
+// ============================================================
+// Skill: like-project
+// ============================================================
+
+const likeProject: SkillExecutor = {
+  skillId: "like-project",
+
+  async execute(input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
+    const userId = metadata?.userId as number | undefined;
+    if (!userId) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Authentication required."))],
+        artifacts: [],
+      };
+    }
+
+    const params = extractInput(input);
+    const projectId = Number(params.projectId);
+    const action = (params.action as string) || "like";
+
+    if (!projectId || isNaN(projectId)) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing or invalid projectId."))],
+        artifacts: [],
+      };
+    }
+
+    const project = await storage.getProject(projectId);
+    if (!project) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Project ${projectId} not found.`))],
+        artifacts: [],
+      };
+    }
+
+    const user = await storage.getUser(userId);
+    if (!user) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("User not found."))],
+        artifacts: [],
+      };
+    }
+
+    if (action === "unlike") {
+      const deleted = await storage.deleteLike(userId, projectId);
+      if (!deleted) {
+        return {
+          status: "failed",
+          messages: [agentMessage(textPart("You haven't liked this project."))],
+          artifacts: [],
+        };
+      }
+      await storage.incrementLikesCount(projectId, -1);
+      await storage.updateUserCredits(userId, { likesRemaining: user.likesRemaining + 1 });
+      return {
+        status: "completed",
+        messages: [agentMessage(textPart(`Unliked "${project.name}".`))],
+        artifacts: [artifact("like-result", "Unlike Result", { projectId, liked: false, likesCount: project.likesCount - 1 })],
+      };
+    }
+
+    // Like
+    if (user.likesRemaining <= 0) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("No likes remaining."))],
+        artifacts: [],
+      };
+    }
+
+    const existing = await storage.getLike(userId, projectId);
+    if (existing) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Already liked this project."))],
+        artifacts: [],
+      };
+    }
+
+    await storage.createLike(userId, projectId);
+    await storage.incrementLikesCount(projectId, 1);
+    await storage.updateUserCredits(userId, { likesRemaining: user.likesRemaining - 1 });
+
+    return {
+      status: "completed",
+      messages: [agentMessage(textPart(`Liked "${project.name}".`))],
+      artifacts: [artifact("like-result", "Like Result", { projectId, liked: true, likesCount: project.likesCount + 1 })],
+    };
+  },
+};
+
+// ============================================================
+// Skill: follow-project
+// ============================================================
+
+const followProject: SkillExecutor = {
+  skillId: "follow-project",
+
+  async execute(input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
+    const userId = metadata?.userId as number | undefined;
+    if (!userId) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Authentication required."))],
+        artifacts: [],
+      };
+    }
+
+    const params = extractInput(input);
+    const projectId = Number(params.projectId);
+    const action = (params.action as string) || "follow";
+
+    if (!projectId || isNaN(projectId)) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing or invalid projectId."))],
+        artifacts: [],
+      };
+    }
+
+    const project = await storage.getProject(projectId);
+    if (!project) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Project ${projectId} not found.`))],
+        artifacts: [],
+      };
+    }
+
+    if (action === "unfollow") {
+      const deleted = await storage.deleteFollow(userId, projectId);
+      if (!deleted) {
+        return {
+          status: "failed",
+          messages: [agentMessage(textPart("You're not following this project."))],
+          artifacts: [],
+        };
+      }
+      await storage.incrementFollowsCount(projectId, -1);
+      return {
+        status: "completed",
+        messages: [agentMessage(textPart(`Unfollowed "${project.name}".`))],
+        artifacts: [artifact("follow-result", "Unfollow Result", { projectId, following: false, followsCount: project.followsCount - 1 })],
+      };
+    }
+
+    // Follow
+    const existing = await storage.getFollow(userId, projectId);
+    if (existing) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Already following this project."))],
+        artifacts: [],
+      };
+    }
+
+    await storage.createFollow(userId, projectId);
+    await storage.incrementFollowsCount(projectId, 1);
+
+    return {
+      status: "completed",
+      messages: [agentMessage(textPart(`Now following "${project.name}".`))],
+      artifacts: [artifact("follow-result", "Follow Result", { projectId, following: true, followsCount: project.followsCount + 1 })],
+    };
+  },
+};
+
+// ============================================================
+// Skill: post-comment
+// ============================================================
+
+const postComment: SkillExecutor = {
+  skillId: "post-comment",
+
+  async execute(input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
+    const userId = metadata?.userId as number | undefined;
+    if (!userId) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Authentication required."))],
+        artifacts: [],
+      };
+    }
+
+    const params = extractInput(input);
+    const projectId = Number(params.projectId);
+    const content = (params.content as string || "").trim();
+
+    if (!projectId || isNaN(projectId)) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing or invalid projectId."))],
+        artifacts: [],
+      };
+    }
+
+    if (!content || content.length > 2000) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Comment content is required (max 2000 characters)."))],
+        artifacts: [],
+      };
+    }
+
+    const project = await storage.getProject(projectId);
+    if (!project) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Project ${projectId} not found.`))],
+        artifacts: [],
+      };
+    }
+
+    const user = await storage.getUser(userId);
+    const comment = await storage.createComment(projectId, userId, content);
+
+    return {
+      status: "completed",
+      messages: [agentMessage(textPart(`Comment posted on "${project.name}".`))],
+      artifacts: [
+        artifact("comment", "Posted Comment", {
+          id: comment.id,
+          projectId: comment.projectId,
+          content: comment.content,
+          username: user?.username,
+          createdAt: comment.createdAt,
+        }),
+      ],
+    };
+  },
+};
+
+// ============================================================
+// Skill: delete-comment
+// ============================================================
+
+const deleteComment: SkillExecutor = {
+  skillId: "delete-comment",
+
+  async execute(input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
+    const userId = metadata?.userId as number | undefined;
+    if (!userId) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Authentication required."))],
+        artifacts: [],
+      };
+    }
+
+    const params = extractInput(input);
+    const commentId = Number(params.commentId);
+
+    if (!commentId || isNaN(commentId)) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing or invalid commentId."))],
+        artifacts: [],
+      };
+    }
+
+    const deleted = await storage.deleteComment(commentId, userId);
+    if (!deleted) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Comment not found or you don't have permission to delete it."))],
+        artifacts: [],
+      };
+    }
+
+    return {
+      status: "completed",
+      messages: [agentMessage(textPart(`Comment #${commentId} deleted.`))],
+      artifacts: [],
+    };
+  },
+};
+
+// ============================================================
+// Skill: submit-feedback
+// ============================================================
+
+const submitFeedback: SkillExecutor = {
+  skillId: "submit-feedback",
+
+  async execute(input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
+    const params = extractInput(input);
+    const projectId = Number(params.projectId);
+    const rating = Number(params.rating);
+    const answers = params.answers as Array<{ question: string; answer: string }> | undefined;
+    const summary = params.summary as string | undefined;
+
+    if (!projectId || isNaN(projectId)) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing or invalid projectId."))],
+        artifacts: [],
+      };
+    }
+
+    if (!rating || isNaN(rating) || rating < 1 || rating > 10) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Rating is required (integer 1-10)."))],
+        artifacts: [],
+      };
+    }
+
+    const project = await storage.getProject(projectId);
+    if (!project) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Project ${projectId} not found.`))],
+        artifacts: [],
+      };
+    }
+
+    // Generate fingerprint from metadata
+    const rawFp = (metadata?.fingerprint as string) || "a2a-feedback-" + crypto.randomBytes(8).toString("hex");
+    const fingerprint = crypto.createHash("sha256").update(rawFp + "vibe-feedback-salt").digest("hex").slice(0, 16);
+
+    const entry = await storage.createFeedback(
+      projectId,
+      Math.round(rating),
+      fingerprint,
+      answers ? JSON.stringify(answers) : undefined,
+      summary || undefined,
+    );
+
+    return {
+      status: "completed",
+      messages: [agentMessage(textPart(`Feedback submitted for "${project.name}" (rating: ${rating}/10).`))],
+      artifacts: [
+        artifact("feedback", "Submitted Feedback", {
+          id: entry.id,
+          projectId: entry.projectId,
+          rating: entry.rating,
+          createdAt: entry.createdAt,
+        }),
+      ],
+    };
+  },
+};
+
+// ============================================================
+// Skill: get-balance
+// ============================================================
+
+const getBalance: SkillExecutor = {
+  skillId: "get-balance",
+
+  async execute(_input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
+    const userId = metadata?.userId as number | undefined;
+    if (!userId) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Authentication required."))],
+        artifacts: [],
+      };
+    }
+
+    const user = await storage.getUser(userId);
+    if (!user) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("User not found."))],
+        artifacts: [],
+      };
+    }
+
+    const ledger = await storage.getCreditLedger(userId);
+
+    return {
+      status: "completed",
+      messages: [
+        agentMessage(
+          textPart(`Balance: ${user.freeListingsRemaining + user.paidListingCredits} listing credits, ${user.likesRemaining} likes remaining.`),
+        ),
+      ],
+      artifacts: [
+        artifact("balance", "Credit Balance", {
+          freeListingsRemaining: user.freeListingsRemaining,
+          paidListingCredits: user.paidListingCredits,
+          earnedCredits: user.earnedCredits,
+          earnedCreditsNeeded: 100,
+          totalListingCredits: user.freeListingsRemaining + user.paidListingCredits,
+          likesRemaining: user.likesRemaining,
+          ledger: ledger.map((e) => ({
+            id: e.id,
+            amount: e.amount,
+            type: e.type,
+            description: e.description,
+            createdAt: e.createdAt,
+          })),
+        }),
+      ],
+    };
+  },
+};
+
+// ============================================================
+// Skill: get-notifications
+// ============================================================
+
+const getNotifications: SkillExecutor = {
+  skillId: "get-notifications",
+
+  async execute(input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
+    const userId = metadata?.userId as number | undefined;
+    if (!userId) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Authentication required."))],
+        artifacts: [],
+      };
+    }
+
+    const params = extractInput(input);
+    const limit = Math.min(Number(params.limit) || 20, 100);
+    const markRead = params.markRead as boolean | undefined;
+
+    const notifs = await storage.getNotifications(userId, limit);
+    const unreadCount = await storage.getUnreadNotificationCount(userId);
+
+    // Optionally mark all as read
+    if (markRead) {
+      await storage.markAllNotificationsRead(userId);
+    }
+
+    return {
+      status: "completed",
+      messages: [agentMessage(textPart(`${notifs.length} notifications (${unreadCount} unread).`))],
+      artifacts: [
+        artifact("notifications", "Notifications", {
+          notifications: notifs.map((n) => ({
+            id: n.id,
+            type: n.type,
+            title: n.title,
+            message: n.message,
+            read: n.read,
+            linkUrl: n.linkUrl,
+            createdAt: n.createdAt,
+          })),
+          unreadCount,
+        }),
+      ],
+    };
+  },
+};
+
+// ============================================================
 // Skill: register-user
 // ============================================================
 
@@ -619,6 +1507,20 @@ const executors: SkillExecutor[] = [
   publishProject,
   subscribeUpdates,
   registerUser,
+  getProfile,
+  getMyProjects,
+  updateProject,
+  deleteProject,
+  getJobStatus,
+  editDraft,
+  approveDraft,
+  likeProject,
+  followProject,
+  postComment,
+  deleteComment,
+  submitFeedback,
+  getBalance,
+  getNotifications,
 ];
 
 const executorMap = new Map(executors.map((e) => [e.skillId, e]));
