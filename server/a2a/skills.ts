@@ -11,11 +11,13 @@
  * - list-categories: List all categories
  * - publish-project: Submit a project URL
  * - subscribe-updates: Subscribe to digest notifications
+ * - register-user: Register a new user account via A2A
  */
 
 import type { SkillExecutor, SkillResult, Message, Part, DataPart, TextPart, Artifact } from "./types";
 import { storage } from "../storage";
 import { processJob } from "../scraper";
+import { clerkClient } from "@clerk/express";
 import crypto from "crypto";
 
 // ============================================================
@@ -469,6 +471,144 @@ const subscribeUpdates: SkillExecutor = {
 };
 
 // ============================================================
+// Skill: register-user
+// ============================================================
+
+const registerUser: SkillExecutor = {
+  skillId: "register-user",
+
+  async execute(input: Message): Promise<SkillResult> {
+    const params = extractInput(input);
+
+    const email = (params.email as string || "").trim().toLowerCase();
+    const username = (params.username as string || "").trim();
+    const password = params.password as string || "";
+    const firstName = params.firstName as string | undefined;
+    const lastName = params.lastName as string | undefined;
+
+    // --- Validate required fields ---
+    if (!email || !username || !password) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing required fields: email, username, and password are all required."))],
+        artifacts: [],
+      };
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Invalid email format: "${email}".`))],
+        artifacts: [],
+      };
+    }
+
+    // Validate username format
+    const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
+    if (!usernameRegex.test(username)) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Invalid username. Must be 3-30 characters, alphanumeric and underscores only."))],
+        artifacts: [],
+      };
+    }
+
+    // Validate password length
+    if (password.length < 8) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Password must be at least 8 characters."))],
+        artifacts: [],
+      };
+    }
+
+    // --- Check for existing user in local DB ---
+    const existingByEmail = await storage.getUserByEmail(email);
+    if (existingByEmail) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`A user with email "${email}" already exists.`))],
+        artifacts: [],
+      };
+    }
+
+    const existingByUsername = await storage.getUserByUsername(username);
+    if (existingByUsername) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Username "${username}" is already taken.`))],
+        artifacts: [],
+      };
+    }
+
+    // --- Create user in Clerk ---
+    let clerkUser;
+    try {
+      clerkUser = await clerkClient.users.createUser({
+        emailAddress: [email],
+        username,
+        password,
+        firstName: firstName || undefined,
+        lastName: lastName || undefined,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+
+      // Clerk returns structured errors for duplicates, weak passwords, etc.
+      if (message.includes("already exists") || message.includes("taken") || message.includes("unique")) {
+        return {
+          status: "failed",
+          messages: [agentMessage(textPart(`Registration failed: ${message}`))],
+          artifacts: [],
+        };
+      }
+
+      console.error("[a2a] Clerk user creation failed:", message);
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Registration failed: ${message}`))],
+        artifacts: [],
+      };
+    }
+
+    // --- Sync to local database ---
+    let dbUser;
+    try {
+      dbUser = await storage.upsertUserFromClerk(clerkUser.id, username, email);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[a2a] DB user sync failed after Clerk creation:", message);
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("User was created in auth provider but failed to sync to database. The user can still sign in normally and will be synced automatically."))],
+        artifacts: [],
+      };
+    }
+
+    return {
+      status: "completed",
+      messages: [
+        agentMessage(
+          textPart(`User "${username}" registered successfully. The account is ready to use.`),
+        ),
+      ],
+      artifacts: [
+        artifact("registered-user", "Registered User", {
+          userId: dbUser.id,
+          clerkId: clerkUser.id,
+          username: dbUser.username,
+          email: dbUser.email,
+          freeListingsRemaining: dbUser.freeListingsRemaining,
+          likesRemaining: dbUser.likesRemaining,
+        }),
+      ],
+    };
+  },
+};
+
+// ============================================================
 // Registry
 // ============================================================
 
@@ -478,6 +618,7 @@ const executors: SkillExecutor[] = [
   listCategories,
   publishProject,
   subscribeUpdates,
+  registerUser,
 ];
 
 const executorMap = new Map(executors.map((e) => [e.skillId, e]));

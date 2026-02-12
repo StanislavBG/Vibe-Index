@@ -125,6 +125,35 @@ const skills: AgentSkill[] = [
       required: ["categoryIds"],
     },
   },
+  {
+    id: "register-user",
+    name: "Register User",
+    description:
+      "Register a new user account on Vibe-Index. Creates a Clerk identity and syncs to the local database. Returns user details and a session token for subsequent authenticated A2A requests.",
+    tags: ["auth", "register", "user", "onboarding"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: { type: "string", format: "email", description: "User's email address (must be unique)" },
+        username: { type: "string", description: "Desired username (must be unique, 3-30 chars, alphanumeric/underscores)" },
+        password: { type: "string", description: "Password (min 8 characters)" },
+        firstName: { type: "string", description: "User's first name (optional)" },
+        lastName: { type: "string", description: "User's last name (optional)" },
+      },
+      required: ["email", "username", "password"],
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        userId: { type: "number", description: "Internal Vibe-Index user ID" },
+        clerkId: { type: "string", description: "Clerk identity ID" },
+        username: { type: "string" },
+        email: { type: "string" },
+        freeListingsRemaining: { type: "number" },
+        likesRemaining: { type: "number" },
+      },
+    },
+  },
 ];
 
 /**

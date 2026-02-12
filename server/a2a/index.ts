@@ -71,6 +71,24 @@
  *       "input": { "categoryIds": [1, 3], "frequency": "weekly" }
  *     }
  *   }
+ *
+ *   // 6. Register a new user (A2A agent onboarding)
+ *   POST https://vibe-index.com/a2a
+ *   {
+ *     "jsonrpc": "2.0",
+ *     "id": "5",
+ *     "method": "tasks/send",
+ *     "params": {
+ *       "skillId": "register-user",
+ *       "input": {
+ *         "email": "agent-user@example.com",
+ *         "username": "agent_user_1",
+ *         "password": "securePass123!",
+ *         "firstName": "Agent",
+ *         "lastName": "User"
+ *       }
+ *     }
+ *   }
  */
 
 export { a2aRouter } from "./router";
