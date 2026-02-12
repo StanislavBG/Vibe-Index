@@ -966,6 +966,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const user = req.dbUser!;
       const stripe = await getUncachableStripeClient();
+      if (!stripe) {
+        return res.status(503).json({ message: "Stripe is not configured" });
+      }
       const credits = PRICE_CREDIT_MAP[priceId];
 
       const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
@@ -1005,6 +1008,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       const stripe = await getUncachableStripeClient();
+      if (!stripe) {
+        return res.status(503).json({ message: "Stripe is not configured" });
+      }
       const session = await stripe.checkout.sessions.retrieve(sessionId);
 
       if (session.payment_status !== "paid") {

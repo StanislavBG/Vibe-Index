@@ -28,9 +28,19 @@ async function initStripe() {
     console.log('Stripe schema ready');
 
     const stripeSync = await getStripeSync();
+    if (!stripeSync) {
+      console.warn('Stripe sync not available, skipping webhook and data sync');
+      return;
+    }
+
+    const replitDomains = process.env.REPLIT_DOMAINS;
+    if (!replitDomains) {
+      console.warn('REPLIT_DOMAINS not set, skipping webhook setup');
+      return;
+    }
 
     console.log('Setting up managed webhook...');
-    const webhookBaseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
+    const webhookBaseUrl = `https://${replitDomains.split(',')[0]}`;
     const webhookResult = await stripeSync.findOrCreateManagedWebhook(
       `${webhookBaseUrl}/api/stripe/webhook`
     );
@@ -41,7 +51,7 @@ async function initStripe() {
       .then(() => console.log('Stripe data synced'))
       .catch((err: unknown) => console.error('Error syncing Stripe data:', err));
   } catch (error) {
-    console.error('Failed to initialize Stripe:', error);
+    console.warn('Stripe initialization skipped (non-fatal):', error instanceof Error ? error.message : error);
   }
 }
 
