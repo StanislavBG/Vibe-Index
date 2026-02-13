@@ -144,7 +144,6 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await initStripe();
   await registerRoutes(httpServer, app);
 
   app.use((err: Error & { status?: number; statusCode?: number }, _req: Request, res: Response, next: NextFunction) => {
@@ -183,6 +182,9 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      initStripe().catch((err) => {
+        console.warn('[stripe] Background init failed (non-fatal):', err instanceof Error ? err.message : err);
+      });
     },
   );
 })();
