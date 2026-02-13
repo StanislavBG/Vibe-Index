@@ -4,11 +4,15 @@ import { z } from "zod";
 
 // === TABLE DEFINITIONS ===
 
+export const userRoleEnum = ["user", "admin"] as const;
+export type UserRole = (typeof userRoleEnum)[number];
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   clerkId: text("clerk_id").notNull().unique(),
   username: text("username").notNull().unique(),
   email: text("email").notNull().unique(),
+  role: text("role").notNull().default("user"), // "user" | "admin"
   freeListingsRemaining: integer("free_listings_remaining").notNull().default(3),
   paidListingCredits: integer("paid_listing_credits").notNull().default(0),
   likesRemaining: integer("likes_remaining").notNull().default(10),
@@ -42,7 +46,7 @@ export const projects = pgTable("projects", {
   anonymousToken: text("anonymous_token"),
   likesCount: integer("likes_count").notNull().default(0),
   followsCount: integer("follows_count").notNull().default(0),
-  commentsCount: integer("comments_count").notNull().default(0),
+
   status: text("status").notNull().default("pending"), // pending (being analyzed), active, low_priority, archived
   claimed: boolean("claimed").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -108,16 +112,7 @@ export const anonymousSubmissions = pgTable("anonymous_submissions", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// Comments on projects
-export const comments = pgTable("comments", {
-  id: serial("id").primaryKey(),
-  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
-  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  content: text("content").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-// Anonymous feedback on projects (replaces comments UX)
+// Anonymous feedback on projects
 export const feedback = pgTable("feedback", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
@@ -232,7 +227,6 @@ export const insertCategorySubscriptionSchema = createInsertSchema(categorySubsc
 export const insertAnonymousSubmissionSchema = createInsertSchema(anonymousSubmissions).omit({ id: true, createdAt: true });
 export const insertJobSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertNewsletterPreferencesSchema = createInsertSchema(newsletterPreferences).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertCommentSchema = createInsertSchema(comments).omit({ id: true, createdAt: true });
 export const insertFeedbackSchema = createInsertSchema(feedback).omit({ id: true, createdAt: true });
 export const insertSocialShareSchema = createInsertSchema(socialShares).omit({ id: true, createdAt: true, verifiedAt: true });
 export const insertCanonicalTagSchema = createInsertSchema(canonicalTags).omit({ id: true, usageCount: true, createdAt: true });
@@ -250,10 +244,6 @@ export const subscribeSchema = z.object({
   interests: z.array(z.string()).optional(),
   pricingFilter: z.enum(["free", "paid", "all"]).optional(),
   maxProjects: z.number().min(1).max(50).optional(),
-});
-
-export const createCommentSchema = z.object({
-  content: z.string().min(1).max(2000),
 });
 
 export const createFeedbackSchema = z.object({
@@ -288,7 +278,6 @@ export type Job = typeof jobs.$inferSelect;
 export type CategorySubscription = typeof categorySubscriptions.$inferSelect;
 export type NewsletterPreference = typeof newsletterPreferences.$inferSelect;
 export type AnonymousSubmission = typeof anonymousSubmissions.$inferSelect;
-export type Comment = typeof comments.$inferSelect;
 export type Feedback = typeof feedback.$inferSelect;
 export type InsertFeedback = z.infer<typeof insertFeedbackSchema>;
 export type ProjectFollow = typeof projectFollows.$inferSelect;

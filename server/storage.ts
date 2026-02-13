@@ -2,12 +2,12 @@ import { db } from "./db";
 import {
   users, projects, categories, projectCategories, likes,
   categorySubscriptions, anonymousSubmissions, jobs, newsletterPreferences,
-  comments, projectFollows, socialShares, creditLedger, notifications,
+  projectFollows, socialShares, creditLedger, notifications,
   emailSends, unsubscribeTokens, canonicalTags, tagSynonyms, projectTags,
   feedback,
   type User, type InsertUser, type Project, type InsertProject,
   type Category, type InsertCategory, type Like, type CategorySubscription,
-  type Job, type NewsletterPreference, type Comment, type ProjectFollow,
+  type Job, type NewsletterPreference, type ProjectFollow,
   type SocialShare, type CreditLedgerEntry, type Notification,
   type EmailSend, type UnsubscribeToken,
   type CanonicalTag, type InsertCanonicalTag, type TagSynonym, type ProjectTag,
@@ -24,6 +24,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   upsertUserFromClerk(clerkId: string, username: string, email: string): Promise<User>;
   updateUserCredits(id: number, updates: Partial<Pick<User, "freeListingsRemaining" | "paidListingCredits" | "likesRemaining">>): Promise<User | undefined>;
+  promoteUserToAdmin(email: string): Promise<void>;
 
   // Projects
   getProject(id: number): Promise<Project | undefined>;
@@ -69,11 +70,6 @@ export interface IStorage {
   getAnonymousSubmissionCount(fingerprint: string): Promise<number>;
   createAnonymousSubmission(fingerprint: string, projectId: number): Promise<void>;
 
-  // Comments
-  getComments(projectId: number): Promise<(Comment & { username: string })[]>;
-  createComment(projectId: number, userId: number, content: string): Promise<Comment>;
-  deleteComment(id: number, userId: number): Promise<boolean>;
-
   // Project Follows
   getFollow(userId: number, projectId: number): Promise<ProjectFollow | undefined>;
   createFollow(userId: number, projectId: number): Promise<ProjectFollow>;
@@ -90,6 +86,9 @@ export interface IStorage {
   getEarnedCredits(userId: number): Promise<number>;
   updateEarnedCredits(userId: number, amount: number): Promise<void>;
   convertEarnedCredits(userId: number): Promise<number>;
+
+  // Admin
+  getAdminUsers(): Promise<User[]>;
 
   // Notifications
   createNotification(userId: number, type: string, title: string, message: string, linkUrl?: string): Promise<Notification>;
@@ -181,6 +180,12 @@ export class DatabaseStorage implements IStorage {
   async updateUserCredits(id: number, updates: Partial<Pick<User, "freeListingsRemaining" | "paidListingCredits" | "likesRemaining">>): Promise<User | undefined> {
     const [user] = await db.update(users).set(updates).where(eq(users.id, id)).returning();
     return user;
+  }
+
+  async promoteUserToAdmin(email: string): Promise<void> {
+    await db.update(users)
+      .set({ role: "admin" })
+      .where(and(eq(users.email, email), sql`${users.role} != 'admin'`));
   }
 
   // === PROJECTS ===
@@ -477,37 +482,6 @@ export class DatabaseStorage implements IStorage {
     await db.insert(anonymousSubmissions).values({ fingerprint, projectId });
   }
 
-  // === COMMENTS ===
-  async getComments(projectId: number): Promise<(Comment & { username: string })[]> {
-    const rows = await db.select({
-      comment: comments,
-      username: users.username,
-    })
-      .from(comments)
-      .innerJoin(users, eq(comments.userId, users.id))
-      .where(eq(comments.projectId, projectId))
-      .orderBy(desc(comments.createdAt));
-    return rows.map(r => ({ ...r.comment, username: r.username }));
-  }
-
-  async createComment(projectId: number, userId: number, content: string): Promise<Comment> {
-    const [comment] = await db.insert(comments).values({ projectId, userId, content }).returning();
-    await db.update(projects).set({
-      commentsCount: sql`${projects.commentsCount} + 1`,
-    }).where(eq(projects.id, projectId));
-    return comment;
-  }
-
-  async deleteComment(id: number, userId: number): Promise<boolean> {
-    const [comment] = await db.select().from(comments).where(eq(comments.id, id));
-    if (!comment || comment.userId !== userId) return false;
-    await db.delete(comments).where(eq(comments.id, id));
-    await db.update(projects).set({
-      commentsCount: sql`GREATEST(${projects.commentsCount} - 1, 0)`,
-    }).where(eq(projects.id, comment.projectId));
-    return true;
-  }
-
   // === PROJECT FOLLOWS ===
   async getFollow(userId: number, projectId: number): Promise<ProjectFollow | undefined> {
     const [follow] = await db.select().from(projectFollows)
@@ -600,6 +574,11 @@ export class DatabaseStorage implements IStorage {
       }).where(eq(users.id, userId));
     }
     return fullCredits;
+  }
+
+  // === ADMIN ===
+  async getAdminUsers(): Promise<User[]> {
+    return db.select().from(users).where(eq(users.role, "admin"));
   }
 
   // === NOTIFICATIONS ===

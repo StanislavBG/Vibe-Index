@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
-import { setupAuth, requireAuth, syncClerkUser } from "./auth";
+import { setupAuth, requireAuth, syncClerkUser, requireAdmin, seedAdminUsers } from "./auth";
 import { getAuth } from "@clerk/express";
 import { submitProjectSchema, subscribeSchema, createCommentSchema, createFeedbackSchema, submitSocialShareSchema, submitFeedbackRequestSchema } from "@shared/schema";
 import { runDigest, startDigestScheduler } from "./digest";
@@ -131,6 +131,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   setupAuth(app);
   await seedCategories();
   await seedCanonicalTags();
+  await seedAdminUsers();
   startVerificationScheduler();
   startDigestScheduler();
 
@@ -151,6 +152,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       clerkId: user.clerkId,
       username: user.username,
       email: user.email,
+      role: user.role,
       freeListingsRemaining: user.freeListingsRemaining,
       paidListingCredits: user.paidListingCredits,
       likesRemaining: user.likesRemaining,
@@ -743,40 +745,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ==========================================
-  // COMMENTS
-  // ==========================================
-  app.get("/api/projects/:id/comments", async (req, res) => {
-    const projectId = parseInt(req.params.id as string);
-    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
-    const commentList = await storage.getComments(projectId);
-    res.json(commentList);
-  });
-
-  app.post("/api/projects/:id/comments", requireAuth, syncClerkUser, async (req, res) => {
-    const projectId = parseInt(req.params.id as string);
-    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
-    try {
-      const { content } = createCommentSchema.parse(req.body);
-      const project = await storage.getProject(projectId);
-      if (!project) return res.status(404).json({ message: "Project not found" });
-      const user = req.dbUser!;
-      const comment = await storage.createComment(projectId, user.id, content);
-      res.status(201).json({ ...comment, username: user.username });
-    } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
-    }
-  });
-
-  app.delete("/api/comments/:id", requireAuth, syncClerkUser, async (req, res) => {
-    const id = parseInt(req.params.id as string);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid comment ID" });
-    const deleted = await storage.deleteComment(id, req.dbUser!.id);
-    if (!deleted) return res.status(403).json({ message: "Cannot delete this comment" });
-    res.json({ message: "Comment deleted" });
-  });
-
-  // ==========================================
   // FEEDBACK (Anonymous)
   // ==========================================
   app.get("/api/projects/:id/feedback", async (req, res) => {
@@ -1069,6 +1037,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const user = req.dbUser!;
       const stripe = await getUncachableStripeClient();
+      if (!stripe) {
+        return res.status(503).json({ message: "Stripe is not configured" });
+      }
       const credits = PRICE_CREDIT_MAP[priceId];
 
       const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
@@ -1108,6 +1079,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       const stripe = await getUncachableStripeClient();
+      if (!stripe) {
+        return res.status(503).json({ message: "Stripe is not configured" });
+      }
       const session = await stripe.checkout.sessions.retrieve(sessionId);
 
       if (session.payment_status !== "paid") {
@@ -1159,6 +1133,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       console.error("Fulfillment error:", error);
       res.status(500).json({ message: "Failed to fulfill purchase" });
     }
+  });
+
+  // ==========================================
+  // ADMIN — maintenance & testing tools
+  // ==========================================
+
+  // Re-analyze an existing project (admin only)
+  app.post("/api/admin/projects/:id/analyze", syncClerkUser, requireAdmin, async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid project ID" });
+    const project = await storage.getProject(id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    // Prevent duplicate analysis — check if there's already an active job
+    const existingJob = await storage.getJobByProject(project.id);
+    if (existingJob && (existingJob.status === "queued" || existingJob.status === "running")) {
+      return res.status(409).json({ message: "Analysis already in progress", job: existingJob });
+    }
+
+    // Create a new analysis job for this project
+    const job = await storage.createJob(project.id);
+    processJob(job.id).catch(console.error);
+    res.json({ message: "Analysis started", job });
   });
 
   // ==========================================

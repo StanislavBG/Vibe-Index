@@ -342,6 +342,15 @@ export async function processJob(jobId: number): Promise<void> {
       result: JSON.stringify(scraped),
     });
 
+    // Notify all admins that analysis is complete
+    const projectName = scraped.name || project.url;
+    await notifyAdmins(
+      "analysis_complete",
+      `Analysis complete: ${projectName}`,
+      `The analysis for "${projectName}" is ready for review.`,
+      `/project/${project.id}`,
+    );
+
     // Project stays "pending" until user approves
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
@@ -351,6 +360,17 @@ export async function processJob(jobId: number): Promise<void> {
       error: errorMessage,
       stepDetail: "Analysis failed",
     });
+
+    // Notify admins about failure
+    const project = await storage.getProject(job.projectId);
+    const projectName = project?.name || project?.url || `#${job.projectId}`;
+    await notifyAdmins(
+      "analysis_complete",
+      `Analysis failed: ${projectName}`,
+      `The analysis for "${projectName}" failed: ${errorMessage}`,
+      `/project/${job.projectId}`,
+    );
+
     // Still mark project active so it's visible even if analysis failed
     try {
       await storage.updateProject(job.projectId, { status: "active" });

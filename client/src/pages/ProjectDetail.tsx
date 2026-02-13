@@ -1,13 +1,15 @@
 import { useRoute, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Heart, ExternalLink, Share2, Globe, BookOpen, Github, Clock, Tag, ArrowLeft, Check, UserPlus, UserMinus } from "lucide-react";
+import { Heart, ExternalLink, Share2, Globe, BookOpen, Github, Clock, Tag, ArrowLeft, Check, UserPlus, UserMinus, FlaskConical, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Navbar } from "@/components/Navbar";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
 import { FeedbackComponent } from "@/components/FeedbackComponent";
-import { useProject, useLikeProject, useFollowProject } from "@/hooks/use-projects";
+import { JobProgress } from "@/components/JobProgress";
+import { AdminOnly } from "@/components/AdminOnly";
+import { useProject, useLikeProject, useFollowProject, useAdminAnalyze, useJob } from "@/hooks/use-projects";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
@@ -36,8 +38,37 @@ export default function ProjectDetail() {
   const { isAuthenticated } = useAuth();
   const likeMutation = useLikeProject();
   const followMutation = useFollowProject();
+  const adminAnalyze = useAdminAnalyze();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const [newJobId, setNewJobId] = useState<number | null>(null);
+
+  // Track the active job: either one returned with the project or one we just started
+  const existingJob = project?.job;
+  const isJobActive = existingJob && (existingJob.status === "queued" || existingJob.status === "running" || existingJob.status === "review");
+  const activeJobId = newJobId ?? (isJobActive ? existingJob?.id ?? null : null);
+  const { data: polledJob } = useJob(activeJobId);
+
+  const handleAnalyze = () => {
+    if (!project) return;
+    adminAnalyze.mutate(project.id, {
+      onSuccess: (data) => {
+        setNewJobId(data.job.id);
+        queryClient.invalidateQueries({ queryKey: [`/api/projects/${project.id}`] });
+      },
+      onError: (err: any) => {
+        if (err.message?.includes("already in progress")) {
+          toast({ title: "Analysis in progress", description: "An analysis is already running for this listing." });
+        } else {
+          toast({ title: "Error", description: err.message || "Failed to start analysis", variant: "destructive" });
+        }
+      },
+    });
+  };
+
+  // Determine if analysis is actively running (for UI state)
+  const analysisInProgress = polledJob && (polledJob.status === "queued" || polledJob.status === "running");
+  const showJobProgress = activeJobId !== null && polledJob && polledJob.status !== "completed";
 
   const handleFollow = async () => {
     if (!isAuthenticated) {
@@ -163,6 +194,22 @@ export default function ProjectDetail() {
                 </div>
 
                 <div className="flex items-center gap-2 flex-shrink-0">
+                  <AdminOnly>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleAnalyze}
+                      disabled={adminAnalyze.isPending || !!analysisInProgress}
+                      className="gap-1.5"
+                    >
+                      {adminAnalyze.isPending || analysisInProgress ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <FlaskConical className="w-3.5 h-3.5" />
+                      )}
+                      {analysisInProgress ? "Analyzing..." : "Analyze"}
+                    </Button>
+                  </AdminOnly>
                   <Button
                     variant={project.liked ? "default" : "outline"}
                     size="sm"
@@ -283,6 +330,19 @@ export default function ProjectDetail() {
               </div>
             </div>
           </Card>
+
+          {/* Analysis Progress (visible to admins when active) */}
+          {showJobProgress && (
+            <AdminOnly>
+              <JobProgress
+                jobId={activeJobId}
+                projectId={project.id}
+                onDraftReady={() => {
+                  queryClient.invalidateQueries({ queryKey: [`/api/projects/${project.id}`] });
+                }}
+              />
+            </AdminOnly>
+          )}
 
           {/* Feedback Section */}
           <FeedbackComponent projectId={project.id} />

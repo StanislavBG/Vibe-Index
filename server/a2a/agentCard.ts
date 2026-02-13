@@ -6,6 +6,14 @@
  *
  * Served at: GET /.well-known/agent.json
  * A2A endpoint: POST /a2a
+ *
+ * API Groups:
+ *   1. Authentication & Account  — register, profile, balance, notifications
+ *   2. Discovery                 — browse projects, project details, categories
+ *   3. Project Management        — publish, list own, update, delete
+ *   4. Job / Draft Lifecycle     — poll status, edit draft, approve & publish
+ *   5. Social Interactions       — like, follow, feedback
+ *   6. Subscriptions             — email digest subscriptions
  */
 
 import type { AgentCard, AgentSkill } from "./types";
@@ -13,11 +21,75 @@ import type { AgentCard, AgentSkill } from "./types";
 const PROTOCOL_VERSION = "0.2.0";
 const AGENT_VERSION = "1.0.0";
 
-/**
- * Skills represent the operations an external agent can invoke.
- * Each skill maps to concrete application logic in the task handler.
- */
-const skills: AgentSkill[] = [
+// ────────────────────────────────────────────────────────────
+// 1. Authentication & Account
+// ────────────────────────────────────────────────────────────
+
+const authSkills: AgentSkill[] = [
+  {
+    id: "register-user",
+    name: "Register User",
+    description:
+      "Register a new user account on Vibe-Index. Creates a Clerk identity and syncs to the local database. Returns user details for subsequent authenticated A2A requests.",
+    tags: ["auth", "register", "user", "onboarding"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: { type: "string", format: "email", description: "User's email address (must be unique)" },
+        username: { type: "string", description: "Desired username (must be unique, 3-30 chars, alphanumeric/underscores)" },
+        password: { type: "string", description: "Password (min 8 characters)" },
+        firstName: { type: "string", description: "User's first name (optional)" },
+        lastName: { type: "string", description: "User's last name (optional)" },
+      },
+      required: ["email", "username", "password"],
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        userId: { type: "number", description: "Internal Vibe-Index user ID" },
+        clerkId: { type: "string", description: "Clerk identity ID" },
+        username: { type: "string" },
+        email: { type: "string" },
+        freeListingsRemaining: { type: "number" },
+        likesRemaining: { type: "number" },
+      },
+    },
+  },
+  {
+    id: "get-profile",
+    name: "Get Profile",
+    description:
+      "Get the authenticated user's profile including username, email, role, and credit balances. Requires authentication.",
+    tags: ["auth", "profile", "read"],
+  },
+  {
+    id: "get-balance",
+    name: "Get Credit Balance",
+    description:
+      "Get the authenticated user's listing credits, likes remaining, earned credit progress, and full credit ledger history. Requires authentication.",
+    tags: ["credits", "balance", "read"],
+  },
+  {
+    id: "get-notifications",
+    name: "Get Notifications",
+    description:
+      "Get the authenticated user's notifications (share verified, credits earned, system messages). Optionally mark all as read. Requires authentication.",
+    tags: ["notifications", "read"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Max notifications to return (default 20, max 100)" },
+        markRead: { type: "boolean", description: "If true, mark all notifications as read after fetching" },
+      },
+    },
+  },
+];
+
+// ────────────────────────────────────────────────────────────
+// 2. Discovery (public, no auth required)
+// ────────────────────────────────────────────────────────────
+
+const discoverySkills: AgentSkill[] = [
   {
     id: "discover-projects",
     name: "Discover Projects",
@@ -79,11 +151,18 @@ const skills: AgentSkill[] = [
       "Get all 12 project categories: AI/ML, Dev Tools, Web Apps, Mobile, APIs, Games, E-Commerce, Productivity, Social, Education, Finance, Design.",
     tags: ["categories", "browse"],
   },
+];
+
+// ────────────────────────────────────────────────────────────
+// 3. Project Management (auth required)
+// ────────────────────────────────────────────────────────────
+
+const projectManagementSkills: AgentSkill[] = [
   {
     id: "publish-project",
     name: "Publish Project",
     description:
-      "Submit a project URL for AI-powered analysis and listing on Vibe-Index. The URL is scraped, analyzed, and a draft is created for review. Requires authentication.",
+      "Submit a project URL for AI-powered analysis and listing on Vibe-Index. The URL is scraped, analyzed, and a draft is created for review. Authentication optional (anonymous submissions limited to 3).",
     tags: ["submit", "publish", "create"],
     inputSchema: {
       type: "object",
@@ -160,6 +239,19 @@ const skills: AgentSkill[] = [
   },
 ];
 
+// ────────────────────────────────────────────────────────────
+// Combined skill list (order matches API group numbering)
+// ────────────────────────────────────────────────────────────
+
+const skills: AgentSkill[] = [
+  ...authSkills,
+  ...discoverySkills,
+  ...projectManagementSkills,
+  ...jobSkills,
+  ...socialSkills,
+  ...subscriptionSkills,
+];
+
 /**
  * Build the Agent Card for Vibe-Index.
  *
@@ -169,7 +261,7 @@ export function buildAgentCard(baseUrl: string): AgentCard {
   return {
     name: "Vibe Index",
     description:
-      "A project discovery and sharing platform where developers and creators submit, browse, and discuss vibe-coded software projects across 12 categories. External agents can discover projects, publish new listings, and subscribe users for digest updates.",
+      "A project discovery and sharing platform where developers and creators submit, browse, and discuss vibe-coded software projects across 12 categories. External agents can register users, manage projects, interact socially (likes, follows, feedback), and subscribe for digest updates — full feature parity with the web interface.",
     url: `${baseUrl}/a2a`,
     protocolVersion: PROTOCOL_VERSION,
     version: AGENT_VERSION,
