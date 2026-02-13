@@ -1075,6 +1075,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const project = await storage.getProject(id);
     if (!project) return res.status(404).json({ message: "Project not found" });
 
+    // Prevent duplicate analysis — check if there's already an active job
+    const existingJob = await storage.getJobByProject(project.id);
+    if (existingJob && (existingJob.status === "queued" || existingJob.status === "running")) {
+      return res.status(409).json({ message: "Analysis already in progress", job: existingJob });
+    }
+
     // Create a new analysis job for this project
     const job = await storage.createJob(project.id);
     processJob(job.id).catch(console.error);

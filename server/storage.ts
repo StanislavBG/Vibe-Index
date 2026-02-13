@@ -87,6 +87,9 @@ export interface IStorage {
   updateEarnedCredits(userId: number, amount: number): Promise<void>;
   convertEarnedCredits(userId: number): Promise<number>;
 
+  // Admin
+  getAdminUsers(): Promise<User[]>;
+
   // Notifications
   createNotification(userId: number, type: string, title: string, message: string, linkUrl?: string): Promise<Notification>;
   getNotifications(userId: number, limit?: number): Promise<Notification[]>;
@@ -567,6 +570,11 @@ export class DatabaseStorage implements IStorage {
       }).where(eq(users.id, userId));
     }
     return fullCredits;
+  }
+
+  // === ADMIN ===
+  async getAdminUsers(): Promise<User[]> {
+    return db.select().from(users).where(eq(users.role, "admin"));
   }
 
   // === NOTIFICATIONS ===
