@@ -53,7 +53,7 @@ export interface IStorage {
   getJob(id: number): Promise<Job | undefined>;
   getJobByProject(projectId: number): Promise<Job | undefined>;
   getJobsByFingerprint(fingerprint: string): Promise<Job[]>;
-  createJob(projectId: number): Promise<Job>;
+  createJob(projectId: number, opts?: { type?: string; repoUrl?: string }): Promise<Job>;
   updateJob(id: number, updates: Partial<Pick<Job, "status" | "step" | "stepDetail" | "result" | "error">>): Promise<Job | undefined>;
   getActiveJobs(): Promise<Job[]>;
 
@@ -405,8 +405,12 @@ export class DatabaseStorage implements IStorage {
     return Array.from(latestByProject.values());
   }
 
-  async createJob(projectId: number): Promise<Job> {
-    const [job] = await db.insert(jobs).values({ projectId }).returning();
+  async createJob(projectId: number, opts?: { type?: string; repoUrl?: string }): Promise<Job> {
+    const [job] = await db.insert(jobs).values({
+      projectId,
+      ...(opts?.type && { type: opts.type }),
+      ...(opts?.repoUrl && { repoUrl: opts.repoUrl }),
+    }).returning();
     return job;
   }
 

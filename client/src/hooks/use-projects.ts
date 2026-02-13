@@ -222,6 +222,70 @@ export function useSubmitProject() {
   });
 }
 
+// Feedback request types
+export interface FeedbackScores {
+  overall: number;
+  presentation: number;
+  documentation: number;
+  discoverability: number;
+  completeness: number;
+}
+
+export interface FeedbackReport {
+  site: DraftData;
+  repo: {
+    hasReadme: boolean;
+    readmeLength: number;
+    readmeExcerpt: string;
+    hasLicense: boolean;
+    license: string | null;
+    defaultBranch: string | null;
+    stars: number | null;
+    language: string | null;
+    topics: string[];
+    lastPush: string | null;
+    openIssues: number | null;
+  } | null;
+  scores: FeedbackScores;
+  strengths: string[];
+  suggestions: string[];
+  summary: string;
+}
+
+export interface FeedbackRequestResult {
+  id: number;
+  status: string;
+  step: string | null;
+  stepDetail: string | null;
+  repoUrl: string | null;
+  report: FeedbackReport | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function useSubmitFeedbackRequest() {
+  return useMutation({
+    mutationFn: async (data: { url: string; repoUrl?: string }) => {
+      const res = await apiRequest("POST", "/api/feedback-request", data);
+      return res.json() as Promise<{ feedbackRequestId: number; jobId: number; projectId: number }>;
+    },
+  });
+}
+
+export function useFeedbackRequest(id: number | null) {
+  return useQuery<FeedbackRequestResult>({
+    queryKey: [`/api/feedback-request/${id}`],
+    enabled: !!id,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 3000;
+      if (data.status === "completed" || data.status === "failed") return false;
+      return 3000;
+    },
+  });
+}
+
 // Voice search: upload audio → transcribe → return search query
 export function useVoiceSearch() {
   return useMutation({

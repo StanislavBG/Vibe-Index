@@ -1,5 +1,7 @@
 import { storage } from "./storage";
 import { resolveAndAttachTags } from "./tagService";
+import { analyzeRepo } from "./repoAnalyzer";
+import { generateFeedbackReport, type FeedbackReport } from "./feedbackEngine";
 
 export interface ScrapedData {
   name: string;
@@ -378,15 +380,71 @@ export async function processJob(jobId: number): Promise<void> {
   }
 }
 
-// Send a notification to all admin users
-async function notifyAdmins(type: string, title: string, message: string, linkUrl?: string): Promise<void> {
+// Process a feedback job: reuse analyzeUrl + optional analyzeRepo → generate assessment report
+export async function processFeedbackJob(jobId: number): Promise<void> {
+  const job = await storage.getJob(jobId);
+  if (!job) return;
+
   try {
-    const admins = await storage.getAdminUsers();
-    for (const admin of admins) {
-      await storage.createNotification(admin.id, type, title, message, linkUrl);
+    // Step 1: Fetching website
+    await storage.updateJob(jobId, { status: "running", step: "fetching", stepDetail: "Fetching website content..." });
+
+    const project = await storage.getProject(job.projectId);
+    if (!project) {
+      await storage.updateJob(jobId, { status: "failed", step: "error", error: "Project not found" });
+      return;
     }
+
+    // Step 2: Analyze website (REUSES existing analyzeUrl — no duplication)
+    let scraped: ScrapedData;
+    try {
+      scraped = await analyzeUrl(project.url);
+    } catch {
+      await storage.updateJob(jobId, { step: "analyzing", stepDetail: "Could not fetch site, creating basic listing..." });
+      const hostname = new URL(project.url).hostname.replace("www.", "");
+      scraped = {
+        name: hostname,
+        shortDescription: `Visit ${hostname} to learn more about this project.`,
+        longDescription: "",
+        pricingModel: "free",
+        pricingDetails: null,
+        tags: [],
+        suggestedCategories: ["web-apps"],
+        demoUrl: null,
+        docsUrl: null,
+        repoUrl: null,
+      };
+    }
+
+    await storage.updateJob(jobId, { step: "analyzing", stepDetail: "Analyzing website..." });
+
+    // Step 3: Analyze repo (if repoUrl provided on the job or discovered from the site)
+    const repoUrl = job.repoUrl || scraped.repoUrl;
+    let repoAnalysis = null;
+    if (repoUrl) {
+      await storage.updateJob(jobId, { step: "analyzing", stepDetail: "Analyzing repository..." });
+      repoAnalysis = await analyzeRepo(repoUrl);
+    }
+
+    // Step 4: Generate assessment report
+    await storage.updateJob(jobId, { step: "categorizing", stepDetail: "Generating feedback report..." });
+    const report: FeedbackReport = generateFeedbackReport(scraped, repoAnalysis);
+
+    // Step 5: Store report and mark completed
+    await storage.updateJob(jobId, {
+      status: "completed",
+      step: "done",
+      stepDetail: "Feedback report ready",
+      result: JSON.stringify(report),
+    });
   } catch (err) {
-    console.error("Failed to notify admins:", err);
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    await storage.updateJob(jobId, {
+      status: "failed",
+      step: "error",
+      error: errorMessage,
+      stepDetail: "Feedback analysis failed",
+    });
   }
 }
 

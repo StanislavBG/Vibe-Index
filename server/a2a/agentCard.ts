@@ -173,181 +173,38 @@ const projectManagementSkills: AgentSkill[] = [
     },
   },
   {
-    id: "get-my-projects",
-    name: "Get My Projects",
+    id: "get-feedback",
+    name: "Get Project Feedback",
     description:
-      "List all projects owned by the authenticated user, including their job/analysis status. Requires authentication.",
-    tags: ["projects", "read", "manage"],
-  },
-  {
-    id: "update-project",
-    name: "Update Project",
-    description:
-      "Update fields on a project you own (name, description, pricing, URLs, tags, categories). Requires authentication and ownership.",
-    tags: ["projects", "update", "manage"],
+      "Submit a project URL (and optionally a Git repository URL) for in-depth analysis. Returns a structured feedback report with scores for presentation, documentation, discoverability, and completeness, plus actionable strengths and suggestions.",
+    tags: ["feedback", "analysis", "review", "assessment"],
     inputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "number", description: "The project ID to update" },
-        name: { type: "string", description: "Project name" },
-        shortDescription: { type: "string", description: "Short description" },
-        longDescription: { type: "string", description: "Detailed description" },
-        pricingModel: { type: "string", enum: ["free", "paid", "freemium"], description: "Pricing model" },
-        pricingDetails: { type: "string", description: "Pricing details text" },
-        demoUrl: { type: "string", description: "Demo URL" },
-        docsUrl: { type: "string", description: "Documentation URL" },
-        repoUrl: { type: "string", description: "Repository URL" },
-        tags: { type: "string", description: "Comma-separated tags" },
-        categoryIds: { type: "array", items: { type: "number" }, description: "Category IDs to assign" },
+        url: { type: "string", format: "uri", description: "The project URL to analyze" },
+        repoUrl: { type: "string", format: "uri", description: "Optional Git repository URL (GitHub or GitLab) for deeper analysis" },
       },
-      required: ["projectId"],
+      required: ["url"],
     },
-  },
-  {
-    id: "delete-project",
-    name: "Delete Project",
-    description:
-      "Delete a project you own. The listing credit is refunded. Requires authentication and ownership.",
-    tags: ["projects", "delete", "manage"],
-    inputSchema: {
+    outputSchema: {
       type: "object",
       properties: {
-        projectId: { type: "number", description: "The project ID to delete" },
-      },
-      required: ["projectId"],
-    },
-  },
-];
-
-// ────────────────────────────────────────────────────────────
-// 4. Job / Draft Lifecycle
-// ────────────────────────────────────────────────────────────
-
-const jobSkills: AgentSkill[] = [
-  {
-    id: "get-job-status",
-    name: "Get Job Status",
-    description:
-      "Poll the status of a scraping/analysis job. Returns current step, status, and the draft data if the job is in review state.",
-    tags: ["jobs", "status", "read"],
-    inputSchema: {
-      type: "object",
-      properties: {
-        jobId: { type: "number", description: "The job ID to check" },
-      },
-      required: ["jobId"],
-    },
-  },
-  {
-    id: "edit-draft",
-    name: "Edit Draft",
-    description:
-      "Edit a project draft that is in review state. Can either apply direct field edits or provide text feedback for AI-powered refinement.",
-    tags: ["jobs", "draft", "edit"],
-    inputSchema: {
-      type: "object",
-      properties: {
-        jobId: { type: "number", description: "The job ID whose draft to edit" },
-        feedback: { type: "string", description: "Text feedback for AI-powered draft refinement (alternative to direct edits)" },
-        name: { type: "string", description: "Project name" },
-        shortDescription: { type: "string", description: "Short description" },
-        longDescription: { type: "string", description: "Detailed description" },
-        pricingModel: { type: "string", description: "Pricing model" },
-        pricingDetails: { type: "string", description: "Pricing details" },
-        tags: { type: "string", description: "Comma-separated tags" },
-        suggestedCategories: { type: "array", items: { type: "string" }, description: "Category slugs" },
-        demoUrl: { type: "string", description: "Demo URL" },
-        docsUrl: { type: "string", description: "Docs URL" },
-        repoUrl: { type: "string", description: "Repo URL" },
-      },
-      required: ["jobId"],
-    },
-  },
-  {
-    id: "approve-draft",
-    name: "Approve Draft",
-    description:
-      "Approve a project draft and publish it as an active listing. The job must be in review state.",
-    tags: ["jobs", "draft", "publish", "approve"],
-    inputSchema: {
-      type: "object",
-      properties: {
-        jobId: { type: "number", description: "The job ID to approve" },
-      },
-      required: ["jobId"],
-    },
-  },
-];
-
-// ────────────────────────────────────────────────────────────
-// 5. Social Interactions
-// ────────────────────────────────────────────────────────────
-
-const socialSkills: AgentSkill[] = [
-  {
-    id: "like-project",
-    name: "Like Project",
-    description:
-      "Like or unlike a project. Liking costs 1 like credit. Requires authentication.",
-    tags: ["social", "like"],
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectId: { type: "number", description: "The project ID" },
-        action: { type: "string", enum: ["like", "unlike"], description: "Action to perform (default: like)" },
-      },
-      required: ["projectId"],
-    },
-  },
-  {
-    id: "follow-project",
-    name: "Follow Project",
-    description:
-      "Follow or unfollow a project to receive update notifications. Requires authentication.",
-    tags: ["social", "follow"],
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectId: { type: "number", description: "The project ID" },
-        action: { type: "string", enum: ["follow", "unfollow"], description: "Action to perform (default: follow)" },
-      },
-      required: ["projectId"],
-    },
-  },
-  {
-    id: "submit-feedback",
-    name: "Submit Feedback",
-    description:
-      "Submit anonymous feedback on a project with a rating (1-10) and optional Q&A answers. No authentication required.",
-    tags: ["feedback", "review", "anonymous"],
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectId: { type: "number", description: "The project ID" },
-        rating: { type: "number", description: "Rating from 1 to 10" },
-        answers: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              question: { type: "string" },
-              answer: { type: "string" },
-            },
+        scores: {
+          type: "object",
+          properties: {
+            overall: { type: "number", description: "Overall score 1-10" },
+            presentation: { type: "number" },
+            documentation: { type: "number" },
+            discoverability: { type: "number" },
+            completeness: { type: "number" },
           },
-          description: "Optional Q&A pairs",
         },
-        summary: { type: "string", description: "Optional text summary of feedback" },
+        strengths: { type: "array", items: { type: "string" } },
+        suggestions: { type: "array", items: { type: "string" } },
+        summary: { type: "string" },
       },
-      required: ["projectId", "rating"],
     },
   },
-];
-
-// ────────────────────────────────────────────────────────────
-// 6. Subscriptions
-// ────────────────────────────────────────────────────────────
-
-const subscriptionSkills: AgentSkill[] = [
   {
     id: "subscribe-updates",
     name: "Subscribe to Updates",

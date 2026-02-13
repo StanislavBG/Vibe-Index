@@ -5,43 +5,18 @@
  * storage/service operations. This is the bridge between the A2A
  * protocol layer and the application business logic.
  *
- * API Groups (matches agentCard.ts):
- *
- *   1. Authentication & Account
- *      - register-user      Register a new user account via A2A
- *      - get-profile         Get authenticated user's profile
- *      - get-balance          Get credit balance & ledger
- *      - get-notifications    Get notifications
- *
- *   2. Discovery (public)
- *      - discover-projects   Search/browse projects
- *      - get-project         Get detailed project info
- *      - list-categories     List all categories
- *
- *   3. Project Management
- *      - publish-project     Submit a project URL
- *      - get-my-projects     List user's own projects
- *      - update-project      Update own project
- *      - delete-project      Delete own project
- *
- *   4. Job / Draft Lifecycle
- *      - get-job-status      Poll scraping/analysis job status
- *      - edit-draft          Edit or refine a project draft
- *      - approve-draft       Approve and publish a draft
- *
- *   5. Social Interactions
- *      - like-project        Like or unlike a project
- *      - follow-project      Follow or unfollow a project
- *      - submit-feedback     Submit anonymous feedback
- *
- *   6. Subscriptions
- *      - subscribe-updates   Subscribe to digest notifications
+ * Skills:
+ * - discover-projects: Search/browse projects
+ * - get-project: Get detailed project info
+ * - list-categories: List all categories
+ * - publish-project: Submit a project URL
+ * - get-feedback: Get feedback report for a project URL + optional repo
+ * - subscribe-updates: Subscribe to digest notifications
  */
 
 import type { SkillExecutor, SkillResult, Message, Part, DataPart, TextPart, Artifact } from "./types";
 import { storage } from "../storage";
-import { processJob, approveAndPublish, refineDraft, type ScrapedData } from "../scraper";
-import { clerkClient } from "@clerk/express";
+import { processJob, processFeedbackJob } from "../scraper";
 import crypto from "crypto";
 
 // ════════════════════════════════════════════════════════════
@@ -654,8 +629,97 @@ const publishProject: SkillExecutor = {
   },
 };
 
-const getMyProjects: SkillExecutor = {
-  skillId: "get-my-projects",
+// ============================================================
+// Skill: get-feedback
+// ============================================================
+
+const getFeedback: SkillExecutor = {
+  skillId: "get-feedback",
+
+  async execute(input: Message): Promise<SkillResult> {
+    const params = extractInput(input);
+    const url = params.url as string;
+    const repoUrl = params.repoUrl as string | undefined;
+
+    if (!url) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart("Missing required field: url. Provide the project URL to analyze."))],
+        artifacts: [],
+      };
+    }
+
+    // Validate URL format
+    try {
+      new URL(url);
+    } catch {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Invalid URL: "${url}". Provide a valid URL starting with http:// or https://.`))],
+        artifacts: [],
+      };
+    }
+
+    if (repoUrl) {
+      try {
+        new URL(repoUrl);
+      } catch {
+        return {
+          status: "failed",
+          messages: [agentMessage(textPart(`Invalid repoUrl: "${repoUrl}". Provide a valid URL starting with http:// or https://.`))],
+          artifacts: [],
+        };
+      }
+    }
+
+    // Create a lightweight project entry + feedback job
+    const project = await storage.createProject({
+      url,
+      status: "pending",
+      claimed: false,
+    });
+
+    const job = await storage.createJob(project.id, {
+      type: "feedback",
+      repoUrl: repoUrl || undefined,
+    });
+
+    // Run synchronously so the agent gets the result immediately
+    await processFeedbackJob(job.id);
+
+    // Read the completed job
+    const completed = await storage.getJob(job.id);
+    if (!completed || completed.status !== "completed" || !completed.result) {
+      return {
+        status: "failed",
+        messages: [agentMessage(textPart(`Feedback analysis failed: ${completed?.error || "Unknown error"}`))],
+        artifacts: [],
+      };
+    }
+
+    const report = JSON.parse(completed.result);
+
+    return {
+      status: "completed",
+      messages: [
+        agentMessage(textPart(report.summary)),
+      ],
+      artifacts: [
+        artifact("feedback-report", "Feedback Report", report),
+      ],
+    };
+  },
+};
+
+// ============================================================
+// Skill: subscribe-updates
+// ============================================================
+
+const subscribeUpdates: SkillExecutor = {
+  skillId: "subscribe-updates",
+
+  async execute(input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
+    const params = extractInput(input);
 
   async execute(_input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
     const userId = metadata?.userId as number | undefined;
@@ -1363,21 +1427,7 @@ const executors: SkillExecutor[] = [
 
   // 3. Project Management
   publishProject,
-  getMyProjects,
-  updateProject,
-  deleteProject,
-
-  // 4. Job / Draft Lifecycle
-  getJobStatus,
-  editDraft,
-  approveDraft,
-
-  // 5. Social Interactions
-  likeProject,
-  followProject,
-  submitFeedback,
-
-  // 6. Subscriptions
+  getFeedback,
   subscribeUpdates,
 ];
 

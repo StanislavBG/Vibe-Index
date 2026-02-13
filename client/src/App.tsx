@@ -9,6 +9,7 @@ import Submit from "@/pages/Submit";
 import Subscribe from "@/pages/Subscribe";
 import ProjectDetail from "@/pages/ProjectDetail";
 import Dashboard from "@/pages/Dashboard";
+import GetFeedback from "@/pages/GetFeedback";
 import { SignInPage, SignUpPage } from "@/pages/Auth";
 
 function Router() {
@@ -16,6 +17,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/submit" component={Submit} />
+      <Route path="/get-feedback" component={GetFeedback} />
       <Route path="/subscribe" component={Subscribe} />
       <Route path="/project/:id" component={ProjectDetail} />
       <Route path="/dashboard" component={Dashboard} />

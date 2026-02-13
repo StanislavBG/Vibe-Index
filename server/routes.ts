@@ -4,10 +4,10 @@ import { storage } from "./storage";
 import { z } from "zod";
 import { setupAuth, requireAuth, syncClerkUser, requireAdmin, seedAdminUsers } from "./auth";
 import { getAuth } from "@clerk/express";
-import { submitProjectSchema, subscribeSchema, createFeedbackSchema, submitSocialShareSchema } from "@shared/schema";
+import { submitProjectSchema, subscribeSchema, createCommentSchema, createFeedbackSchema, submitSocialShareSchema, submitFeedbackRequestSchema } from "@shared/schema";
 import { runDigest, startDigestScheduler } from "./digest";
 import { isEmailConfigured } from "./email";
-import { processJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
+import { processJob, processFeedbackJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
 import { seedCanonicalTags, resolveTag, suggestTags, createCanonicalTag, addSynonym, resolveAndAttachTags, normalizeTag } from "./tagService";
 import { a2aRouter } from "./a2a";
 import crypto from "crypto";
@@ -838,6 +838,77 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       .map((a: { answer: string }) => a.answer.trim());
     const summary = `Rated ${rating}/10 ("${label}"). ${answerTexts.join(" ")}`.trim();
     res.json({ summary });
+  });
+
+  // ==========================================
+  // FEEDBACK REQUESTS — "Get Feedback" workflow
+  // ==========================================
+
+  // Start a feedback analysis job (url + optional repoUrl)
+  app.post("/api/feedback-request", async (req, res) => {
+    try {
+      const input = submitFeedbackRequestSchema.parse(req.body);
+      const fingerprint = req.ip || req.headers["x-forwarded-for"] as string || "unknown";
+
+      // Create a lightweight project entry to anchor the job
+      const project = await storage.createProject({
+        url: input.url,
+        status: "pending",
+        claimed: false,
+      });
+
+      // Create a feedback-type job with optional repoUrl
+      const job = await storage.createJob(project.id, {
+        type: "feedback",
+        repoUrl: input.repoUrl,
+      });
+
+      // Start processing in background (reuses analyzeUrl internally)
+      processFeedbackJob(job.id).catch(console.error);
+
+      res.status(201).json({
+        feedbackRequestId: job.id,
+        jobId: job.id,
+        projectId: project.id,
+      });
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      throw err;
+    }
+  });
+
+  // Poll feedback job status and retrieve the report
+  app.get("/api/feedback-request/:id", async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid feedback request ID" });
+
+    const job = await storage.getJob(id);
+    if (!job) return res.status(404).json({ message: "Feedback request not found" });
+    if (job.type !== "feedback") return res.status(400).json({ message: "Not a feedback request" });
+
+    const response: Record<string, unknown> = {
+      id: job.id,
+      status: job.status,
+      step: job.step,
+      stepDetail: job.stepDetail,
+      repoUrl: job.repoUrl,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    };
+
+    if (job.status === "completed" && job.result) {
+      try {
+        response.report = JSON.parse(job.result);
+      } catch {
+        response.report = null;
+      }
+    }
+
+    if (job.status === "failed") {
+      response.error = job.error;
+    }
+
+    res.json(response);
   });
 
   // ==========================================

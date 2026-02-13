@@ -72,11 +72,13 @@ export const likes = pgTable("likes", {
 export const jobs = pgTable("jobs", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  type: text("type").notNull().default("analyze"), // analyze, feedback
   status: text("status").notNull().default("queued"), // queued, running, completed, failed
   step: text("step").default("waiting"), // waiting, fetching, analyzing, categorizing, done, error
   stepDetail: text("step_detail"),
   result: text("result"), // JSON string of extracted data
   error: text("error"),
+  repoUrl: text("repo_url"), // Optional Git repo URL (used by feedback jobs)
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -251,6 +253,11 @@ export const createFeedbackSchema = z.object({
     answer: z.string(),
   })).optional(),
   summary: z.string().max(5000).optional(),
+});
+
+export const submitFeedbackRequestSchema = z.object({
+  url: z.string().url(),
+  repoUrl: z.string().url().optional(),
 });
 
 export const submitSocialShareSchema = z.object({
