@@ -711,52 +711,6 @@ const getFeedback: SkillExecutor = {
   },
 };
 
-// ============================================================
-// Skill: subscribe-updates
-// ============================================================
-
-const subscribeUpdates: SkillExecutor = {
-  skillId: "subscribe-updates",
-
-  async execute(input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
-    const params = extractInput(input);
-
-  async execute(_input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
-    const userId = metadata?.userId as number | undefined;
-    if (!userId) {
-      return {
-        status: "failed",
-        messages: [agentMessage(textPart("Authentication required."))],
-        artifacts: [],
-      };
-    }
-
-    const projects = await storage.getProjectsByOwner(userId);
-    const withJobs = await Promise.all(
-      projects.map(async (p) => {
-        const job = await storage.getJobByProject(p.id);
-        return {
-          id: p.id,
-          name: p.name,
-          url: p.url,
-          shortDescription: p.shortDescription,
-          pricingModel: p.pricingModel,
-          status: p.status,
-          likesCount: p.likesCount,
-          followsCount: p.followsCount,
-              createdAt: p.createdAt,
-          job: job ? { id: job.id, status: job.status, step: job.step } : null,
-        };
-      }),
-    );
-
-    return {
-      status: "completed",
-      messages: [agentMessage(textPart(`You have ${withJobs.length} project${withJobs.length !== 1 ? "s" : ""}.`))],
-      artifacts: [artifact("my-projects", "My Projects", withJobs)],
-    };
-  },
-};
 
 const updateProject: SkillExecutor = {
   skillId: "update-project",
