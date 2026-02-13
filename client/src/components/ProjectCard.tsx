@@ -34,6 +34,10 @@ export function ProjectCard({ project }: { project: Project }) {
     e.stopPropagation();
     adminAnalyze.mutate(project.id, {
       onSuccess: () => setAnalyzeStarted(true),
+      onError: () => {
+        // 409 means analysis already in progress — show same UI state
+        setAnalyzeStarted(true);
+      },
     });
   };
 
