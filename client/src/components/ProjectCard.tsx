@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Heart, ExternalLink, Clock, Tag } from "lucide-react";
-import { type Project } from "@/hooks/use-projects";
+import { Button } from "@/components/ui/button";
+import { Heart, ExternalLink, Clock, Tag, FlaskConical, Loader2 } from "lucide-react";
+import { type Project, useAdminAnalyze } from "@/hooks/use-projects";
+import { AdminOnly } from "@/components/AdminOnly";
 import { timeAgo } from "@/lib/time";
 
 function getDomainFromUrl(url: string): string {
@@ -24,6 +27,15 @@ function getDisplayTags(project: Project): string[] {
 export function ProjectCard({ project }: { project: Project }) {
   const [, navigate] = useLocation();
   const tags = getDisplayTags(project);
+  const adminAnalyze = useAdminAnalyze();
+  const [analyzeStarted, setAnalyzeStarted] = useState(false);
+
+  const handleAnalyze = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    adminAnalyze.mutate(project.id, {
+      onSuccess: () => setAnalyzeStarted(true),
+    });
+  };
 
   return (
     <Card
@@ -85,6 +97,22 @@ export function ProjectCard({ project }: { project: Project }) {
               Anonymous
             </Badge>
           )}
+          <AdminOnly>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-5 px-1.5 text-[10px] gap-1"
+              disabled={adminAnalyze.isPending || analyzeStarted}
+              onClick={handleAnalyze}
+            >
+              {adminAnalyze.isPending ? (
+                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+              ) : (
+                <FlaskConical className="w-2.5 h-2.5" />
+              )}
+              {analyzeStarted ? "Analyzing..." : "Analyze"}
+            </Button>
+          </AdminOnly>
         </div>
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Clock className="w-3 h-3" />

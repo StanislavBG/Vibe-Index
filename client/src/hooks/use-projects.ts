@@ -480,6 +480,20 @@ export function useCreateFeedback() {
   });
 }
 
+// === ADMIN ===
+
+export function useAdminAnalyze() {
+  return useMutation({
+    mutationFn: async (projectId: number) => {
+      const res = await apiRequest("POST", `/api/admin/projects/${projectId}/analyze`);
+      return res.json() as Promise<{ message: string; job: Job }>;
+    },
+    onSuccess: (_, projectId) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}`] });
+    },
+  });
+}
+
 export function useSummarizeFeedback() {
   return useMutation({
     mutationFn: async ({ rating, answers }: { rating: number; answers: FeedbackAnswer[] }) => {

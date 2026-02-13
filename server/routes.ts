@@ -1093,6 +1093,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ==========================================
+  // ADMIN — maintenance & testing tools
+  // ==========================================
+
+  // Re-analyze an existing project (admin only)
+  app.post("/api/admin/projects/:id/analyze", syncClerkUser, requireAdmin, async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid project ID" });
+    const project = await storage.getProject(id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    // Create a new analysis job for this project
+    const job = await storage.createJob(project.id);
+    processJob(job.id).catch(console.error);
+    res.json({ message: "Analysis started", job });
+  });
+
+  // ==========================================
   // HEALTH CHECK
   // ==========================================
   app.get("/api/hello", (_req, res) => {
