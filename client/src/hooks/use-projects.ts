@@ -46,7 +46,7 @@ export interface Project {
   ownerId: number | null;
   likesCount: number;
   followsCount: number;
-  commentsCount: number;
+
   status: string;
   claimed: boolean;
   createdAt: string;
@@ -55,15 +55,6 @@ export interface Project {
   liked?: boolean;
   followed?: boolean;
   job?: Job | null;
-}
-
-export interface CommentData {
-  id: number;
-  projectId: number;
-  userId: number;
-  content: string;
-  username: string;
-  createdAt: string;
 }
 
 export interface SocialShareData {
@@ -313,38 +304,6 @@ export function useFollowProject() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
-    },
-  });
-}
-
-// === COMMENTS ===
-
-export function useComments(projectId: number | null) {
-  return useQuery<CommentData[]>({
-    queryKey: [`/api/projects/${projectId}/comments`],
-    enabled: projectId !== null,
-    staleTime: 10 * 1000,
-  });
-}
-
-export function useCreateComment() {
-  return useMutation({
-    mutationFn: async ({ projectId, content }: { projectId: number; content: string }) => {
-      const res = await apiRequest("POST", `/api/projects/${projectId}/comments`, { content });
-      return res.json() as Promise<CommentData>;
-    },
-    onSuccess: (_, { projectId }) => {
-      queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}/comments`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}`] });
-    },
-  });
-}
-
-export function useDeleteComment() {
-  return useMutation({
-    mutationFn: async ({ commentId }: { commentId: number }) => {
-      const res = await apiRequest("DELETE", `/api/comments/${commentId}`);
-      return res.json();
     },
   });
 }

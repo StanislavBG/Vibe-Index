@@ -2,12 +2,12 @@ import { db } from "./db";
 import {
   users, projects, categories, projectCategories, likes,
   categorySubscriptions, anonymousSubmissions, jobs, newsletterPreferences,
-  comments, projectFollows, socialShares, creditLedger, notifications,
+  projectFollows, socialShares, creditLedger, notifications,
   emailSends, unsubscribeTokens, canonicalTags, tagSynonyms, projectTags,
   feedback,
   type User, type InsertUser, type Project, type InsertProject,
   type Category, type InsertCategory, type Like, type CategorySubscription,
-  type Job, type NewsletterPreference, type Comment, type ProjectFollow,
+  type Job, type NewsletterPreference, type ProjectFollow,
   type SocialShare, type CreditLedgerEntry, type Notification,
   type EmailSend, type UnsubscribeToken,
   type CanonicalTag, type InsertCanonicalTag, type TagSynonym, type ProjectTag,
@@ -69,11 +69,6 @@ export interface IStorage {
   // Anonymous Submissions
   getAnonymousSubmissionCount(fingerprint: string): Promise<number>;
   createAnonymousSubmission(fingerprint: string, projectId: number): Promise<void>;
-
-  // Comments
-  getComments(projectId: number): Promise<(Comment & { username: string })[]>;
-  createComment(projectId: number, userId: number, content: string): Promise<Comment>;
-  deleteComment(id: number, userId: number): Promise<boolean>;
 
   // Project Follows
   getFollow(userId: number, projectId: number): Promise<ProjectFollow | undefined>;
@@ -478,37 +473,6 @@ export class DatabaseStorage implements IStorage {
 
   async createAnonymousSubmission(fingerprint: string, projectId: number): Promise<void> {
     await db.insert(anonymousSubmissions).values({ fingerprint, projectId });
-  }
-
-  // === COMMENTS ===
-  async getComments(projectId: number): Promise<(Comment & { username: string })[]> {
-    const rows = await db.select({
-      comment: comments,
-      username: users.username,
-    })
-      .from(comments)
-      .innerJoin(users, eq(comments.userId, users.id))
-      .where(eq(comments.projectId, projectId))
-      .orderBy(desc(comments.createdAt));
-    return rows.map(r => ({ ...r.comment, username: r.username }));
-  }
-
-  async createComment(projectId: number, userId: number, content: string): Promise<Comment> {
-    const [comment] = await db.insert(comments).values({ projectId, userId, content }).returning();
-    await db.update(projects).set({
-      commentsCount: sql`${projects.commentsCount} + 1`,
-    }).where(eq(projects.id, projectId));
-    return comment;
-  }
-
-  async deleteComment(id: number, userId: number): Promise<boolean> {
-    const [comment] = await db.select().from(comments).where(eq(comments.id, id));
-    if (!comment || comment.userId !== userId) return false;
-    await db.delete(comments).where(eq(comments.id, id));
-    await db.update(projects).set({
-      commentsCount: sql`GREATEST(${projects.commentsCount} - 1, 0)`,
-    }).where(eq(projects.id, comment.projectId));
-    return true;
   }
 
   // === PROJECT FOLLOWS ===

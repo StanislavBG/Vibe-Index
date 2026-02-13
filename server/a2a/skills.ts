@@ -32,8 +32,6 @@
  *   5. Social Interactions
  *      - like-project        Like or unlike a project
  *      - follow-project      Follow or unfollow a project
- *      - post-comment        Post a comment on a project
- *      - delete-comment      Delete own comment
  *      - submit-feedback     Submit anonymous feedback
  *
  *   6. Subscriptions
@@ -416,7 +414,6 @@ const discoverProjects: SkillExecutor = {
       tags: p.tags,
       likesCount: p.likesCount,
       followsCount: p.followsCount,
-      commentsCount: p.commentsCount,
       createdAt: p.createdAt,
     }));
 
@@ -487,7 +484,6 @@ const getProject: SkillExecutor = {
           imageUrl: project.imageUrl,
           likesCount: project.likesCount,
           followsCount: project.followsCount,
-          commentsCount: project.commentsCount,
           status: project.status,
           categories: cats.map((c) => ({ id: c.id, name: c.name, slug: c.slug })),
           canonicalTags: tags.map((t) => ({ id: t.id, name: t.name, slug: t.slug })),
@@ -684,8 +680,7 @@ const getMyProjects: SkillExecutor = {
           status: p.status,
           likesCount: p.likesCount,
           followsCount: p.followsCount,
-          commentsCount: p.commentsCount,
-          createdAt: p.createdAt,
+              createdAt: p.createdAt,
           job: job ? { id: job.id, status: job.status, step: job.step } : null,
         };
       }),
@@ -1180,108 +1175,6 @@ const followProject: SkillExecutor = {
   },
 };
 
-const postComment: SkillExecutor = {
-  skillId: "post-comment",
-
-  async execute(input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
-    const userId = metadata?.userId as number | undefined;
-    if (!userId) {
-      return {
-        status: "failed",
-        messages: [agentMessage(textPart("Authentication required."))],
-        artifacts: [],
-      };
-    }
-
-    const params = extractInput(input);
-    const projectId = Number(params.projectId);
-    const content = (params.content as string || "").trim();
-
-    if (!projectId || isNaN(projectId)) {
-      return {
-        status: "failed",
-        messages: [agentMessage(textPart("Missing or invalid projectId."))],
-        artifacts: [],
-      };
-    }
-
-    if (!content || content.length > 2000) {
-      return {
-        status: "failed",
-        messages: [agentMessage(textPart("Comment content is required (max 2000 characters)."))],
-        artifacts: [],
-      };
-    }
-
-    const project = await storage.getProject(projectId);
-    if (!project) {
-      return {
-        status: "failed",
-        messages: [agentMessage(textPart(`Project ${projectId} not found.`))],
-        artifacts: [],
-      };
-    }
-
-    const user = await storage.getUser(userId);
-    const comment = await storage.createComment(projectId, userId, content);
-
-    return {
-      status: "completed",
-      messages: [agentMessage(textPart(`Comment posted on "${project.name}".`))],
-      artifacts: [
-        artifact("comment", "Posted Comment", {
-          id: comment.id,
-          projectId: comment.projectId,
-          content: comment.content,
-          username: user?.username,
-          createdAt: comment.createdAt,
-        }),
-      ],
-    };
-  },
-};
-
-const deleteComment: SkillExecutor = {
-  skillId: "delete-comment",
-
-  async execute(input: Message, _taskId: string, metadata?: Record<string, unknown>): Promise<SkillResult> {
-    const userId = metadata?.userId as number | undefined;
-    if (!userId) {
-      return {
-        status: "failed",
-        messages: [agentMessage(textPart("Authentication required."))],
-        artifacts: [],
-      };
-    }
-
-    const params = extractInput(input);
-    const commentId = Number(params.commentId);
-
-    if (!commentId || isNaN(commentId)) {
-      return {
-        status: "failed",
-        messages: [agentMessage(textPart("Missing or invalid commentId."))],
-        artifacts: [],
-      };
-    }
-
-    const deleted = await storage.deleteComment(commentId, userId);
-    if (!deleted) {
-      return {
-        status: "failed",
-        messages: [agentMessage(textPart("Comment not found or you don't have permission to delete it."))],
-        artifacts: [],
-      };
-    }
-
-    return {
-      status: "completed",
-      messages: [agentMessage(textPart(`Comment #${commentId} deleted.`))],
-      artifacts: [],
-    };
-  },
-};
-
 const submitFeedback: SkillExecutor = {
   skillId: "submit-feedback",
 
@@ -1482,8 +1375,6 @@ const executors: SkillExecutor[] = [
   // 5. Social Interactions
   likeProject,
   followProject,
-  postComment,
-  deleteComment,
   submitFeedback,
 
   // 6. Subscriptions

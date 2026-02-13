@@ -12,7 +12,7 @@
  *   2. Discovery                 — browse projects, project details, categories
  *   3. Project Management        — publish, list own, update, delete
  *   4. Job / Draft Lifecycle     — poll status, edit draft, approve & publish
- *   5. Social Interactions       — like, follow, comment, feedback
+ *   5. Social Interactions       — like, follow, feedback
  *   6. Subscriptions             — email digest subscriptions
  */
 
@@ -315,35 +315,6 @@ const socialSkills: AgentSkill[] = [
     },
   },
   {
-    id: "post-comment",
-    name: "Post Comment",
-    description:
-      "Post a comment on a project. Requires authentication.",
-    tags: ["social", "comment", "create"],
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectId: { type: "number", description: "The project ID to comment on" },
-        content: { type: "string", description: "Comment text (max 2000 characters)" },
-      },
-      required: ["projectId", "content"],
-    },
-  },
-  {
-    id: "delete-comment",
-    name: "Delete Comment",
-    description:
-      "Delete a comment you posted. Requires authentication and ownership of the comment.",
-    tags: ["social", "comment", "delete"],
-    inputSchema: {
-      type: "object",
-      properties: {
-        commentId: { type: "number", description: "The comment ID to delete" },
-      },
-      required: ["commentId"],
-    },
-  },
-  {
     id: "submit-feedback",
     name: "Submit Feedback",
     description:
@@ -433,7 +404,7 @@ export function buildAgentCard(baseUrl: string): AgentCard {
   return {
     name: "Vibe Index",
     description:
-      "A project discovery and sharing platform where developers and creators submit, browse, and discuss vibe-coded software projects across 12 categories. External agents can register users, manage projects, interact socially (likes, follows, comments, feedback), and subscribe for digest updates — full feature parity with the web interface.",
+      "A project discovery and sharing platform where developers and creators submit, browse, and discuss vibe-coded software projects across 12 categories. External agents can register users, manage projects, interact socially (likes, follows, feedback), and subscribe for digest updates — full feature parity with the web interface.",
     url: `${baseUrl}/a2a`,
     protocolVersion: PROTOCOL_VERSION,
     version: AGENT_VERSION,

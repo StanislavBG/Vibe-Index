@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { z } from "zod";
 import { setupAuth, requireAuth, syncClerkUser, requireAdmin, seedAdminUsers } from "./auth";
 import { getAuth } from "@clerk/express";
-import { submitProjectSchema, subscribeSchema, createCommentSchema, createFeedbackSchema, submitSocialShareSchema } from "@shared/schema";
+import { submitProjectSchema, subscribeSchema, createFeedbackSchema, submitSocialShareSchema } from "@shared/schema";
 import { runDigest, startDigestScheduler } from "./digest";
 import { isEmailConfigured } from "./email";
 import { processJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
@@ -742,40 +742,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     await storage.incrementFollowsCount(projectId, -1);
     const project = await storage.getProject(projectId);
     res.json({ message: "Unfollowed", followsCount: project?.followsCount || 0 });
-  });
-
-  // ==========================================
-  // COMMENTS
-  // ==========================================
-  app.get("/api/projects/:id/comments", async (req, res) => {
-    const projectId = parseInt(req.params.id as string);
-    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
-    const commentList = await storage.getComments(projectId);
-    res.json(commentList);
-  });
-
-  app.post("/api/projects/:id/comments", requireAuth, syncClerkUser, async (req, res) => {
-    const projectId = parseInt(req.params.id as string);
-    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
-    try {
-      const { content } = createCommentSchema.parse(req.body);
-      const project = await storage.getProject(projectId);
-      if (!project) return res.status(404).json({ message: "Project not found" });
-      const user = req.dbUser!;
-      const comment = await storage.createComment(projectId, user.id, content);
-      res.status(201).json({ ...comment, username: user.username });
-    } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
-    }
-  });
-
-  app.delete("/api/comments/:id", requireAuth, syncClerkUser, async (req, res) => {
-    const id = parseInt(req.params.id as string);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid comment ID" });
-    const deleted = await storage.deleteComment(id, req.dbUser!.id);
-    if (!deleted) return res.status(403).json({ message: "Cannot delete this comment" });
-    res.json({ message: "Comment deleted" });
   });
 
   // ==========================================
