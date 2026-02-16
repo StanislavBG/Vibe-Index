@@ -1028,18 +1028,22 @@ export class DatabaseStorage implements IStorage {
 
   private async ensureConfigCache(): Promise<void> {
     if (this.configCacheLoaded) return;
-    const rows = await db.select().from(systemConfig);
-    this.configCache.clear();
-    for (const row of rows) {
-      this.configCache.set(row.key, row.value);
-    }
-    this.configCacheLoaded = true;
+    try {
+      const rows = await db.select().from(systemConfig);
+      this.configCache.clear();
+      for (const row of rows) {
+        this.configCache.set(row.key, row.value);
+      }
+      this.configCacheLoaded = true;
 
-    // Auto-refresh every 5 minutes as fallback
-    if (!this.configCacheTimer) {
-      this.configCacheTimer = setInterval(() => {
-        this.configCacheLoaded = false;
-      }, 5 * 60 * 1000);
+      if (!this.configCacheTimer) {
+        this.configCacheTimer = setInterval(() => {
+          this.configCacheLoaded = false;
+        }, 5 * 60 * 1000);
+      }
+    } catch (err) {
+      console.warn('[config] Failed to load system_config (non-fatal):', err instanceof Error ? err.message : err);
+      this.configCacheLoaded = true;
     }
   }
 

@@ -4,7 +4,7 @@ import { storage, seedSystemConfig, backfillProjectContributors } from "./storag
 import { z } from "zod";
 import { setupAuth, requireAuth, syncClerkUser, requireAdmin, seedAdminUsers } from "./auth";
 import { getAuth } from "@clerk/express";
-import { submitProjectSchema, subscribeSchema, createCommentSchema, createFeedbackSchema, submitSocialShareSchema, submitFeedbackRequestSchema } from "@shared/schema";
+import { submitProjectSchema, subscribeSchema, createFeedbackSchema, submitSocialShareSchema, submitFeedbackRequestSchema } from "@shared/schema";
 import { runDigest, startDigestScheduler } from "./digest";
 import { isEmailConfigured } from "./email";
 import { processJob, processFeedbackJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
@@ -162,15 +162,41 @@ function startEarningWindowCleanup() {
   console.log("[cleanup] Earning window cleanup scheduled (every 1h)");
 }
 
-export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
-  setupAuth(app);
-  await seedCategories();
-  await seedCanonicalTags();
-  await seedAdminUsers();
-  await seedSystemConfig();
+async function runBackgroundSeeding(): Promise<void> {
+  try {
+    await seedCategories();
+  } catch (err) {
+    console.warn('[seed] seedCategories failed (non-fatal):', err instanceof Error ? err.message : err);
+  }
+  try {
+    await seedCanonicalTags();
+  } catch (err) {
+    console.warn('[seed] seedCanonicalTags failed (non-fatal):', err instanceof Error ? err.message : err);
+  }
+  try {
+    await seedAdminUsers();
+  } catch (err) {
+    console.warn('[seed] seedAdminUsers failed (non-fatal):', err instanceof Error ? err.message : err);
+  }
+  try {
+    await seedSystemConfig();
+  } catch (err) {
+    console.warn('[seed] seedSystemConfig failed (non-fatal):', err instanceof Error ? err.message : err);
+  }
   startVerificationScheduler();
   startEarningWindowCleanup();
   startDigestScheduler();
+  console.log('[seed] Background seeding complete');
+}
+
+export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
+  setupAuth(app);
+
+  setImmediate(() => {
+    runBackgroundSeeding().catch((err) => {
+      console.warn('[seed] Background seeding error (non-fatal):', err instanceof Error ? err.message : err);
+    });
+  });
 
   // ==========================================
   // A2A AGENT COMMUNICATION SERVICE
