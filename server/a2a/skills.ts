@@ -16,7 +16,8 @@
 
 import type { SkillExecutor, SkillResult, Message, Part, DataPart, TextPart, Artifact } from "./types";
 import { storage } from "../storage";
-import { processJob, processFeedbackJob } from "../scraper";
+import { processJob, processFeedbackJob, approveAndPublish, refineDraft, type ScrapedData } from "../scraper";
+import { clerkClient } from "@clerk/express";
 import crypto from "crypto";
 
 // ════════════════════════════════════════════════════════════
@@ -1382,6 +1383,20 @@ const executors: SkillExecutor[] = [
   // 3. Project Management
   publishProject,
   getFeedback,
+  updateProject,
+  deleteProject,
+
+  // 4. Job / Draft Lifecycle
+  getJobStatus,
+  editDraft,
+  approveDraft,
+
+  // 5. Social Interactions
+  likeProject,
+  followProject,
+  submitFeedback,
+
+  // 6. Subscriptions
   subscribeUpdates,
 ];
 
