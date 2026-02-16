@@ -1,10 +1,10 @@
 import type { Express } from "express";
 import type { Server } from "http";
-import { storage, seedSystemConfig, backfillProjectContributors } from "./storage";
+import { storage, seedSystemConfig, backfillProjectContributors, backfillExistingUsersToAdmin } from "./storage";
 import { z } from "zod";
 import { setupAuth, requireAuth, syncClerkUser, requireAdmin, seedAdminUsers } from "./auth";
 import { getAuth } from "@clerk/express";
-import { submitProjectSchema, subscribeSchema, createCommentSchema, createFeedbackSchema, submitSocialShareSchema, submitFeedbackRequestSchema } from "@shared/schema";
+import { submitProjectSchema, subscribeSchema, createFeedbackSchema, submitSocialShareSchema, submitFeedbackRequestSchema } from "@shared/schema";
 import { runDigest, startDigestScheduler } from "./digest";
 import { isEmailConfigured } from "./email";
 import { processJob, processFeedbackJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
@@ -167,6 +167,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   await seedCategories();
   await seedCanonicalTags();
   await seedAdminUsers();
+  await backfillExistingUsersToAdmin();
   await seedSystemConfig();
   startVerificationScheduler();
   startEarningWindowCleanup();

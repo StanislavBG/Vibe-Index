@@ -104,6 +104,17 @@ export function createMockStorage(): IStorage {
       }
     },
 
+    async promoteAllExistingUsersToAdmin(): Promise<number> {
+      let count = 0;
+      for (const user of usersStore) {
+        if (user.role !== 'admin') {
+          user.role = 'admin';
+          count++;
+        }
+      }
+      return count;
+    },
+
     // === PROJECTS ===
     async getProject(id: number): Promise<Project | undefined> {
       return projectsStore.find(p => p.id === id);
@@ -367,17 +378,13 @@ export function createMockStorage(): IStorage {
     },
 
     async getAllConfig(): Promise<SystemConfig[]> {
-      const result: SystemConfig[] = [];
-      for (const [key, value] of configStore) {
-        result.push({
-          key,
-          value,
-          description: null,
-          updatedAt: new Date(),
-          updatedBy: null,
-        });
-      }
-      return result;
+      return Array.from(configStore.entries()).map(([key, value]) => ({
+        key,
+        value,
+        description: null,
+        updatedAt: new Date(),
+        updatedBy: null,
+      }));
     },
 
     // === Not implemented stubs ===
@@ -434,6 +441,24 @@ export function createMockStorage(): IStorage {
 
     async getProjectTags(_projectId: number) { return notImplemented('getProjectTags'); },
     async setProjectTags(_projectId: number, _canonicalTagIds: number[]) { return notImplemented('setProjectTags'); },
+
+    async getCurrentEarningWindow(_userId: number) { return notImplemented('getCurrentEarningWindow'); },
+    async checkCreditCap(_userId: number, _capAmount?: number) { return notImplemented('checkCreditCap'); },
+    async incrementCreditEarning(_userId: number, _amount: number) { return notImplemented('incrementCreditEarning'); },
+    async pruneExpiredEarningWindows() { return notImplemented('pruneExpiredEarningWindows'); },
+
+    async markUserBounced(_userId: number) { return notImplemented('markUserBounced'); },
+    async unmarkUserBounced(_userId: number) { return notImplemented('unmarkUserBounced'); },
+
+    async getTrendingProjects(_days?: number, _limit?: number) { return notImplemented('getTrendingProjects'); },
+    async getProjectsGettingTraction(_days?: number, _limit?: number) { return notImplemented('getProjectsGettingTraction'); },
+
+    async addProjectContributor(_projectId: number, _userId: number, _role: any) { return notImplemented('addProjectContributor'); },
+    async getProjectContributors(_projectId: number) { return notImplemented('getProjectContributors'); },
+    async getProjectsByContributor(_userId: number, _role?: any) { return notImplemented('getProjectsByContributor'); },
+    async isProjectContributor(_projectId: number, _userId: number) { return notImplemented('isProjectContributor'); },
+    async removeProjectContributor(_projectId: number, _userId: number, _role: any) { return notImplemented('removeProjectContributor'); },
+    async setProjectDeveloper(_projectId: number, _userId: number) { return notImplemented('setProjectDeveloper'); },
   };
 
   return storage;

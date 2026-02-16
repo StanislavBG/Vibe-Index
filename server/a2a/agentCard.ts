@@ -247,9 +247,6 @@ const skills: AgentSkill[] = [
   ...authSkills,
   ...discoverySkills,
   ...projectManagementSkills,
-  ...jobSkills,
-  ...socialSkills,
-  ...subscriptionSkills,
 ];
 
 /**

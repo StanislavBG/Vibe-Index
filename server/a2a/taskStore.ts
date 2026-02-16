@@ -89,11 +89,11 @@ export function listTasks(limit = 20, offset = 0): TaskSummary[] {
 export function pruneExpiredTasks(): number {
   const cutoff = Date.now() - TASK_TTL_MS;
   let pruned = 0;
-  for (const [id, task] of tasks) {
+  Array.from(tasks.entries()).forEach(([id, task]) => {
     if (new Date(task.updatedAt).getTime() < cutoff) {
       tasks.delete(id);
       pruned++;
     }
-  }
+  });
   return pruned;
 }

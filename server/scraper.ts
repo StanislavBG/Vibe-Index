@@ -3,6 +3,18 @@ import { resolveAndAttachTags } from "./tagService";
 import { analyzeRepo } from "./repoAnalyzer";
 import { generateFeedbackReport, type FeedbackReport } from "./feedbackEngine";
 
+/** Send a notification to all admin users. */
+async function notifyAdmins(type: string, title: string, message: string, linkUrl?: string): Promise<void> {
+  try {
+    const admins = await storage.getAdminUsers();
+    for (const admin of admins) {
+      await storage.createNotification(admin.id, type, title, message, linkUrl);
+    }
+  } catch (err) {
+    console.warn("[scraper] Failed to notify admins:", err instanceof Error ? err.message : err);
+  }
+}
+
 export interface ScrapedData {
   name: string;
   shortDescription: string;

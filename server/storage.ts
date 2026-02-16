@@ -27,6 +27,7 @@ export interface IStorage {
   upsertUserFromClerk(clerkId: string, username: string, email: string): Promise<User>;
   updateUserCredits(id: number, updates: Partial<Pick<User, "freeListingsRemaining" | "paidListingCredits" | "likesRemaining">>): Promise<User | undefined>;
   promoteUserToAdmin(email: string): Promise<void>;
+  promoteAllExistingUsersToAdmin(): Promise<number>;
 
   // Projects
   getProject(id: number): Promise<Project | undefined>;
@@ -704,6 +705,14 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(users).where(eq(users.role, "admin"));
   }
 
+  async promoteAllExistingUsersToAdmin(): Promise<number> {
+    const result = await db.update(users)
+      .set({ role: "admin" })
+      .where(sql`${users.role} != 'admin'`)
+      .returning();
+    return result.length;
+  }
+
   // === NOTIFICATIONS ===
   async createNotification(userId: number, type: string, title: string, message: string, linkUrl?: string): Promise<Notification> {
     const [notif] = await db.insert(notifications).values({
@@ -1264,5 +1273,18 @@ export async function backfillProjectContributors(): Promise<void> {
     console.log(`[backfill] Added contributor records for ${backfilled} projects`);
   } else {
     console.log("[backfill] All projects already have contributor records");
+  }
+}
+
+/**
+ * Backfill: promote all currently registered users to admin role.
+ * Safe to run multiple times — only updates users who aren't already admin.
+ */
+export async function backfillExistingUsersToAdmin(): Promise<void> {
+  const promoted = await storage.promoteAllExistingUsersToAdmin();
+  if (promoted > 0) {
+    console.log(`[backfill] Promoted ${promoted} existing users to admin`);
+  } else {
+    console.log("[backfill] All existing users are already admin");
   }
 }

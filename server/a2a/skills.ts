@@ -16,7 +16,8 @@
 
 import type { SkillExecutor, SkillResult, Message, Part, DataPart, TextPart, Artifact } from "./types";
 import { storage } from "../storage";
-import { processJob, processFeedbackJob } from "../scraper";
+import { processJob, processFeedbackJob, approveAndPublish, refineDraft, type ScrapedData } from "../scraper";
+import { clerkClient } from "@clerk/express";
 import crypto from "crypto";
 
 // ════════════════════════════════════════════════════════════
@@ -953,7 +954,7 @@ const editDraft: SkillExecutor = {
     const updated: ScrapedData = { ...current };
     for (const field of ["name", "shortDescription", "longDescription", "pricingModel", "pricingDetails", "tags", "suggestedCategories", "demoUrl", "docsUrl", "repoUrl"] as const) {
       if (params[field] !== undefined) {
-        (updated as Record<string, unknown>)[field] = params[field];
+        (updated as unknown as Record<string, unknown>)[field] = params[field];
       }
     }
 
