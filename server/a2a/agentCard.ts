@@ -205,6 +205,131 @@ const projectManagementSkills: AgentSkill[] = [
       },
     },
   },
+];
+
+// ────────────────────────────────────────────────────────────
+// 4. Job / Draft Lifecycle
+// ────────────────────────────────────────────────────────────
+
+const jobSkills: AgentSkill[] = [
+  {
+    id: "get-job-status",
+    name: "Get Job Status",
+    description:
+      "Check the status of an analysis job. Returns progress info, and draft data when the job reaches the review stage.",
+    tags: ["job", "status", "poll"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "number", description: "The job ID to check" },
+      },
+      required: ["jobId"],
+    },
+  },
+  {
+    id: "edit-draft",
+    name: "Edit Draft",
+    description:
+      "Edit a project draft that is in review. Provide field-level edits or text feedback to refine the draft with AI assistance.",
+    tags: ["draft", "edit", "review"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "number", description: "The job ID with a draft in review" },
+        feedback: { type: "string", description: "Text feedback to refine the draft (AI-assisted)" },
+        name: { type: "string", description: "Direct edit: project name" },
+        shortDescription: { type: "string", description: "Direct edit: short description" },
+        longDescription: { type: "string", description: "Direct edit: long description" },
+        pricingModel: { type: "string", description: "Direct edit: pricing model" },
+      },
+      required: ["jobId"],
+    },
+  },
+  {
+    id: "approve-draft",
+    name: "Approve Draft",
+    description:
+      "Approve a reviewed draft and publish the project to Vibe-Index listings.",
+    tags: ["draft", "approve", "publish"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "number", description: "The job ID with a draft to approve" },
+      },
+      required: ["jobId"],
+    },
+  },
+];
+
+// ────────────────────────────────────────────────────────────
+// 5. Social Interactions
+// ────────────────────────────────────────────────────────────
+
+const socialSkills: AgentSkill[] = [
+  {
+    id: "like-project",
+    name: "Like Project",
+    description:
+      "Like or unlike a project. Requires authentication. Each user has a limited number of likes.",
+    tags: ["like", "social", "interact"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "number", description: "The project ID to like/unlike" },
+        action: { type: "string", enum: ["like", "unlike"], description: "Action to perform (default: like)" },
+      },
+      required: ["projectId"],
+    },
+  },
+  {
+    id: "follow-project",
+    name: "Follow Project",
+    description:
+      "Follow or unfollow a project to get updates. Requires authentication.",
+    tags: ["follow", "social", "interact"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "number", description: "The project ID to follow/unfollow" },
+        action: { type: "string", enum: ["follow", "unfollow"], description: "Action to perform (default: follow)" },
+      },
+      required: ["projectId"],
+    },
+  },
+  {
+    id: "submit-feedback",
+    name: "Submit Feedback",
+    description:
+      "Submit anonymous feedback and a rating (1-10) for a project. No authentication required.",
+    tags: ["feedback", "rating", "social"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "number", description: "The project ID to rate" },
+        rating: { type: "number", description: "Rating from 1 (lowest) to 10 (highest)" },
+        answers: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              question: { type: "string" },
+              answer: { type: "string" },
+            },
+          },
+          description: "Optional Q&A feedback entries",
+        },
+        summary: { type: "string", description: "Optional text summary of feedback" },
+      },
+      required: ["projectId", "rating"],
+    },
+  },
+];
+
+// ────────────────────────────────────────────────────────────
+// 6. Subscriptions
+// ────────────────────────────────────────────────────────────
+
+const subscriptionSkills: AgentSkill[] = [
   {
     id: "subscribe-updates",
     name: "Subscribe to Updates",
