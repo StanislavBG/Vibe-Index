@@ -62,6 +62,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
 // This is the single source of truth — no public endpoint can grant admin.
 const ADMIN_EMAILS: string[] = [
   "stanislavbg@gmail.com",
+  "derrick.ellis@gmail.com",
 ];
 
 /**
