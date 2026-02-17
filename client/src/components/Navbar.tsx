@@ -6,6 +6,20 @@ import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead,
 import { LogOut, Menu, X, Bell, CheckCheck, ExternalLink } from "lucide-react";
 import { timeAgo } from "@/lib/time";
 
+function getNotifLink(notif: NotificationData): string {
+  if (notif.linkUrl) return notif.linkUrl;
+  switch (notif.type) {
+    case "share_verified":
+    case "share_expired":
+    case "new_review":
+      return "/dashboard";
+    case "credit_earned":
+      return "/submit";
+    default:
+      return "/dashboard";
+  }
+}
+
 function NotificationBell() {
   const [, navigate] = useLocation();
   const { data } = useNotifications();
@@ -32,10 +46,8 @@ function NotificationBell() {
     if (!notif.read) {
       markRead.mutate(notif.id);
     }
-    if (notif.linkUrl) {
-      navigate(notif.linkUrl);
-      setOpen(false);
-    }
+    navigate(getNotifLink(notif));
+    setOpen(false);
   };
 
   return (
@@ -91,9 +103,7 @@ function NotificationBell() {
                       <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.message}</p>
                       <span className="text-[10px] text-muted-foreground/60 mt-1 block">{timeAgo(notif.createdAt)}</span>
                     </div>
-                    {notif.linkUrl && (
-                      <ExternalLink className="w-3 h-3 text-muted-foreground flex-shrink-0 mt-0.5" />
-                    )}
+                    <ExternalLink className="w-3 h-3 text-muted-foreground flex-shrink-0 mt-0.5" />
                   </div>
                 </button>
               ))
