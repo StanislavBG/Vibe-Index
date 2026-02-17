@@ -14,6 +14,7 @@ import {
   type CanonicalTag, type InsertCanonicalTag, type TagSynonym, type ProjectTag,
   type Feedback, type SystemConfig, type CreditEarningWindow,
   type ProjectContributor, type ContributorRole,
+  type HumanFeedback,
 } from "@shared/schema";
 import { eq, and, ilike, or, sql, desc, asc, count, gt, lt, isNotNull } from "drizzle-orm";
 
@@ -147,6 +148,13 @@ export interface IStorage {
   createFeedback(projectId: number, rating: number, fingerprint: string, answers?: string, summary?: string): Promise<Feedback>;
   getFeedbackCount(projectId: number): Promise<number>;
   getAverageRating(projectId: number): Promise<number | null>;
+
+  // Human Feedback (Community Reviews)
+  createHumanFeedback(projectId: number, authorUserId: number, sections: Record<string, string>, overallRating: number): Promise<HumanFeedback>;
+  getHumanFeedback(projectId: number, limit?: number, offset?: number): Promise<{ feedback: HumanFeedback[]; total: number }>;
+  getHumanFeedbackByUser(userId: number): Promise<(HumanFeedback & { projectName: string; projectUrl: string })[]>;
+  getHumanFeedbackInbox(userId: number): Promise<HumanFeedback[]>;
+  getUserHumanFeedbackForProject(userId: number, projectId: number): Promise<HumanFeedback | undefined>;
 
   // Project Contributors
   addProjectContributor(projectId: number, userId: number, role: ContributorRole): Promise<ProjectContributor>;
@@ -939,6 +947,72 @@ export class DatabaseStorage implements IStorage {
       avg: sql<string>`ROUND(AVG(${feedback.rating})::numeric, 1)`,
     }).from(feedback).where(eq(feedback.projectId, projectId));
     return result.avg ? parseFloat(result.avg) : null;
+  }
+
+  // === HUMAN FEEDBACK (Community Reviews) ===
+
+  async createHumanFeedback(projectId: number, authorUserId: number, sections: Record<string, string>, overallRating: number): Promise<HumanFeedback> {
+    const [entry] = await db.insert(humanFeedback).values({
+      projectId,
+      authorUserId,
+      sections,
+      overallRating,
+    }).returning();
+    return entry;
+  }
+
+  async getHumanFeedback(projectId: number, limit = 20, offset = 0): Promise<{ feedback: HumanFeedback[]; total: number }> {
+    const [countResult] = await db.select({ value: count() }).from(humanFeedback)
+      .where(and(eq(humanFeedback.projectId, projectId), eq(humanFeedback.status, "published")));
+
+    const rows = await db.select({
+      hf: humanFeedback,
+      username: users.username,
+    })
+      .from(humanFeedback)
+      .innerJoin(users, eq(humanFeedback.authorUserId, users.id))
+      .where(and(eq(humanFeedback.projectId, projectId), eq(humanFeedback.status, "published")))
+      .orderBy(desc(humanFeedback.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const feedback = rows.map(r => ({ ...r.hf, username: r.username }));
+    return { feedback, total: countResult.value };
+  }
+
+  async getHumanFeedbackByUser(userId: number): Promise<(HumanFeedback & { projectName: string; projectUrl: string })[]> {
+    const rows = await db.select({
+      hf: humanFeedback,
+      projectName: projects.name,
+      projectUrl: projects.url,
+    })
+      .from(humanFeedback)
+      .innerJoin(projects, eq(humanFeedback.projectId, projects.id))
+      .where(eq(humanFeedback.authorUserId, userId))
+      .orderBy(desc(humanFeedback.createdAt));
+
+    return rows.map(r => ({ ...r.hf, projectName: r.projectName || "", projectUrl: r.projectUrl }));
+  }
+
+  async getHumanFeedbackInbox(userId: number): Promise<HumanFeedback[]> {
+    // Get all published reviews on projects owned by this user
+    const rows = await db.select({
+      hf: humanFeedback,
+      username: users.username,
+    })
+      .from(humanFeedback)
+      .innerJoin(projects, eq(humanFeedback.projectId, projects.id))
+      .innerJoin(users, eq(humanFeedback.authorUserId, users.id))
+      .where(and(eq(projects.ownerId, userId), eq(humanFeedback.status, "published")))
+      .orderBy(desc(humanFeedback.createdAt));
+
+    return rows.map(r => ({ ...r.hf, username: r.username }));
+  }
+
+  async getUserHumanFeedbackForProject(userId: number, projectId: number): Promise<HumanFeedback | undefined> {
+    const [row] = await db.select().from(humanFeedback)
+      .where(and(eq(humanFeedback.authorUserId, userId), eq(humanFeedback.projectId, projectId)));
+    return row;
   }
 
   // === PROJECT CONTRIBUTORS ===
