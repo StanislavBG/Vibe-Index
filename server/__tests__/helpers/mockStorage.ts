@@ -97,10 +97,13 @@ export function createMockStorage(): IStorage {
       return user;
     },
 
-    async promoteUserToAdmin(email: string): Promise<void> {
+    async promoteUserToAdmin(email: string, freeListings?: number): Promise<void> {
       const user = usersStore.find(u => u.email === email);
-      if (user && user.role !== 'admin') {
+      if (user) {
         user.role = 'admin';
+        if (freeListings !== undefined) {
+          user.freeListingsRemaining = freeListings;
+        }
       }
     },
 

@@ -71,8 +71,10 @@ const ADMIN_EMAILS: string[] = [
  * already admin. When the user signs up later, syncClerkUser will pick up
  * the role from the DB normally.
  */
+const ADMIN_FREE_LISTINGS = 10;
+
 export async function seedAdminUsers(): Promise<void> {
   for (const email of ADMIN_EMAILS) {
-    await storage.promoteUserToAdmin(email);
+    await storage.promoteUserToAdmin(email, ADMIN_FREE_LISTINGS);
   }
 }

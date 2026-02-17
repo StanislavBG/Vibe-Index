@@ -26,7 +26,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   upsertUserFromClerk(clerkId: string, username: string, email: string): Promise<User>;
   updateUserCredits(id: number, updates: Partial<Pick<User, "freeListingsRemaining" | "paidListingCredits" | "likesRemaining">>): Promise<User | undefined>;
-  promoteUserToAdmin(email: string): Promise<void>;
+  promoteUserToAdmin(email: string, freeListings?: number): Promise<void>;
 
   // Projects
   getProject(id: number): Promise<Project | undefined>;
@@ -209,10 +209,14 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async promoteUserToAdmin(email: string): Promise<void> {
+  async promoteUserToAdmin(email: string, freeListings?: number): Promise<void> {
+    const setFields: Record<string, unknown> = { role: "admin" };
+    if (freeListings !== undefined) {
+      setFields.freeListingsRemaining = freeListings;
+    }
     await db.update(users)
-      .set({ role: "admin" })
-      .where(and(eq(users.email, email), sql`${users.role} != 'admin'`));
+      .set(setFields)
+      .where(eq(users.email, email));
   }
 
   // === PROJECTS ===
