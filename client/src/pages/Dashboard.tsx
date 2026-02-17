@@ -435,7 +435,14 @@ export default function Dashboard() {
                   <Card key={project.id} className="glass-card p-5 flex items-center justify-between hover:shadow-lg transition-all">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-bold truncate">
+                        <h3
+                          className={`font-bold truncate ${project.status === "active" || project.job?.status === "review" ? "cursor-pointer hover:underline" : ""}`}
+                          onClick={() => {
+                            if (project.status === "active" || project.job?.status === "review") {
+                              navigate(`/project/${project.id}`);
+                            }
+                          }}
+                        >
                           {project.name || new URL(project.url).hostname.replace("www.", "")}
                         </h3>
                         <JobStatusBadge job={project.job} />
@@ -464,9 +471,9 @@ export default function Dashboard() {
                         size="sm"
                         onClick={() => navigate(`/project/${project.id}`)}
                         className="gap-1"
-                        disabled={project.status !== "active"}
+                        disabled={project.status !== "active" && project.job?.status !== "review"}
                       >
-                        View
+                        {project.job?.status === "review" ? "Review" : "View"}
                       </Button>
                       <Button
                         variant="ghost"
