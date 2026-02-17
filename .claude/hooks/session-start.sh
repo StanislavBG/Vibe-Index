@@ -30,8 +30,8 @@ if ! sudo -u postgres psql -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw "$DB_NAM
   sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';" 2>/dev/null || true
 fi
 
-# Set DATABASE_URL for drizzle-kit and the session
-export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/vibeindex"
+# Set DATABASE_URL for drizzle-kit and the session (respect existing env/secret if set)
+export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/vibeindex}"
 echo "export DATABASE_URL=\"$DATABASE_URL\"" >> "$CLAUDE_ENV_FILE"
 
 echo "[session-start] Pushing database schema..."
