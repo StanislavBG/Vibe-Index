@@ -4,23 +4,90 @@
 
 set -e
 
-echo "[setup-db] Checking database connectivity..."
-
-# Quick connectivity check using DATABASE_URL
-if ! timeout 5 node -e "
-const { Pool } = require('pg');
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-pool.query('SELECT 1').then(() => { console.log('OK'); pool.end(); process.exit(0); }).catch(e => { console.error(e.message); pool.end(); process.exit(1); });
-" 2>/dev/null; then
-  echo "[setup-db] WARNING: Cannot connect to database. Skipping schema push."
-  echo "[setup-db] The app will start and attempt to connect on its own."
-  exit 0
-fi
-
-echo "[setup-db] Database is accessible."
-echo "[setup-db] Pushing schema to database..."
-yes | npx drizzle-kit push 2>&1 || {
-  echo "[setup-db] WARNING: drizzle-kit push failed (non-fatal). The app may encounter errors."
+# Find PostgreSQL binaries dynamically
+find_pg_bin() {
+  for bin in pg_ctl initdb psql createdb pg_isready; do
+    if ! command -v "$bin" &>/dev/null; then
+      local found
+      found=$(find /nix/store -maxdepth 3 -name "$bin" -path "*/bin/$bin" 2>/dev/null | head -1)
+      if [ -n "$found" ]; then
+        export PATH="$(dirname "$found"):$PATH"
+      fi
+    fi
+  done
 }
 
-echo "[setup-db] Database setup complete."
+find_pg_bin
+
+PGDATA="$HOME/.pg_data"
+SOCKET_DIR="$PGDATA/sockets"
+PGLOG="$HOME/.pg_log"
+DB_NAME="vibeindex"
+
+start_postgres() {
+  echo "[setup-db] Ensuring PostgreSQL is running..."
+
+  if ! command -v pg_ctl &>/dev/null; then
+    echo "[setup-db] WARNING: pg_ctl not found. Cannot start PostgreSQL."
+    return 1
+  fi
+
+  if [ ! -d "$PGDATA" ]; then
+    echo "[setup-db] Initializing database cluster..."
+    initdb -D "$PGDATA" -U postgres --auth=trust 2>&1
+    mkdir -p "$SOCKET_DIR"
+    cat >> "$PGDATA/postgresql.conf" <<EOF
+unix_socket_directories = '$SOCKET_DIR'
+listen_addresses = 'localhost'
+EOF
+  fi
+
+  mkdir -p "$SOCKET_DIR"
+
+  if pg_isready -h "$SOCKET_DIR" -U postgres -q 2>/dev/null; then
+    echo "[setup-db] PostgreSQL is already running."
+    return 0
+  fi
+
+  rm -f "$PGDATA/postmaster.pid"
+
+  pg_ctl -D "$PGDATA" -l "$PGLOG" -o "-k $SOCKET_DIR" start 2>&1
+
+  for i in $(seq 1 10); do
+    if pg_isready -h "$SOCKET_DIR" -U postgres -q 2>/dev/null; then
+      echo "[setup-db] PostgreSQL is ready."
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "[setup-db] WARNING: PostgreSQL did not become ready in time."
+  tail -10 "$PGLOG" 2>/dev/null
+  return 1
+}
+
+create_database() {
+  if ! psql -h "$SOCKET_DIR" -U postgres -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw "$DB_NAME"; then
+    echo "[setup-db] Creating database '$DB_NAME'..."
+    createdb -h "$SOCKET_DIR" -U postgres "$DB_NAME" 2>&1
+  else
+    echo "[setup-db] Database '$DB_NAME' already exists."
+  fi
+}
+
+push_schema() {
+  echo "[setup-db] Pushing schema to database..."
+  export DATABASE_URL="postgresql://postgres@localhost:5432/$DB_NAME?host=$SOCKET_DIR"
+  yes 2>/dev/null | npx drizzle-kit push 2>&1 || {
+    echo "[setup-db] WARNING: drizzle-kit push failed (non-fatal)."
+  }
+}
+
+if start_postgres; then
+  create_database
+  push_schema
+  echo "[setup-db] Database setup complete."
+else
+  echo "[setup-db] WARNING: Could not start PostgreSQL. Skipping schema push."
+  echo "[setup-db] The app will start and attempt to connect on its own."
+fi

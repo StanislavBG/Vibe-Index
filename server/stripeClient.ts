@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { getDbPoolConfig } from './dbConfig';
 
 let connectionSettings: any;
 let stripeAvailable = false;
@@ -94,11 +95,9 @@ export async function getStripeSync(): Promise<any | null> {
         return null;
       }
 
+      const stripePoolConfig = getDbPoolConfig(2);
       stripeSync = new StripeSync({
-        poolConfig: {
-          connectionString: process.env.DATABASE_URL!,
-          max: 2,
-        },
+        poolConfig: stripePoolConfig,
         stripeSecretKey: secretKey,
       });
     } catch (error: any) {
