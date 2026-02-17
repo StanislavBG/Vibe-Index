@@ -12,6 +12,7 @@ externalPort = 80
 
 [env]
 PORT = "5000"
+DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/vibeindex"
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -36,7 +37,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run dev"
+args = "npm run db:setup && npm run dev"
 waitForPort = 5000
 
 [agent]
