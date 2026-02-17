@@ -8,8 +8,9 @@ import { Navbar } from "@/components/Navbar";
 import { BackgroundEffect } from "@/components/BackgroundEffect";
 import { FeedbackComponent } from "@/components/FeedbackComponent";
 import { JobProgress } from "@/components/JobProgress";
+import { DraftEditor } from "@/components/DraftEditor";
 import { AdminOnly } from "@/components/AdminOnly";
-import { useProject, useLikeProject, useFollowProject, useAdminAnalyze, useJob } from "@/hooks/use-projects";
+import { useProject, useLikeProject, useFollowProject, useAdminAnalyze, useJob, type DraftData } from "@/hooks/use-projects";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
@@ -35,7 +36,7 @@ export default function ProjectDetail() {
   const [, navigate] = useLocation();
   const projectId = params?.id ? parseInt(params.id) : null;
   const { data: project, isLoading } = useProject(projectId);
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user: authUser } = useAuth();
   const likeMutation = useLikeProject();
   const followMutation = useFollowProject();
   const adminAnalyze = useAdminAnalyze();
@@ -331,8 +332,24 @@ export default function ProjectDetail() {
             </div>
           </Card>
 
-          {/* Analysis Progress (visible to admins when active) */}
-          {showJobProgress && (
+          {/* Draft review editor (visible to owner when job is in review state) */}
+          {polledJob?.status === "review" && authUser?.id === project.ownerId && polledJob.result && (() => {
+            try {
+              const draftData = JSON.parse(polledJob.result) as DraftData;
+              return (
+                <DraftEditor
+                  jobId={polledJob.id}
+                  projectId={project.id}
+                  initialDraft={draftData}
+                />
+              );
+            } catch {
+              return null;
+            }
+          })()}
+
+          {/* Analysis Progress (visible to admins when active, but not when owner already sees DraftEditor) */}
+          {showJobProgress && !(polledJob?.status === "review" && authUser?.id === project.ownerId) && (
             <AdminOnly>
               <JobProgress
                 jobId={activeJobId}
