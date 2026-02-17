@@ -4,7 +4,7 @@ import { storage, seedSystemConfig, backfillProjectContributors } from "./storag
 import { z } from "zod";
 import { setupAuth, requireAuth, syncClerkUser, requireAdmin, seedAdminUsers } from "./auth";
 import { getAuth } from "@clerk/express";
-import { submitProjectSchema, subscribeSchema, createFeedbackSchema, submitSocialShareSchema, submitFeedbackRequestSchema } from "@shared/schema";
+import { submitProjectSchema, subscribeSchema, createFeedbackSchema, submitSocialShareSchema, submitFeedbackRequestSchema, submitHumanFeedbackSchema } from "@shared/schema";
 import { runDigest, startDigestScheduler } from "./digest";
 import { isEmailConfigured } from "./email";
 import { processJob, processFeedbackJob, approveAndPublish, refineDraft, type ScrapedData } from "./scraper";
@@ -1046,6 +1046,110 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       .map((a: { answer: string }) => a.answer.trim());
     const summary = `Rated ${rating}/10 ("${label}"). ${answerTexts.join(" ")}`.trim();
     res.json({ summary });
+  });
+
+  // ==========================================
+  // HUMAN FEEDBACK (Authenticated Community Reviews)
+  // ==========================================
+
+  // List community reviews for a project (public)
+  app.get("/api/projects/:id/human-feedback", async (req, res) => {
+    const projectId = parseInt(req.params.id as string);
+    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+    const offset = parseInt(req.query.offset as string) || 0;
+    const result = await storage.getHumanFeedback(projectId, limit, offset);
+    res.json(result);
+  });
+
+  // Submit a community review (requires auth, earns credit)
+  app.post("/api/projects/:id/human-feedback", writeLimiter, requireAuth, syncClerkUser, async (req, res) => {
+    const projectId = parseInt(req.params.id as string);
+    if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+    try {
+      const input = submitHumanFeedbackSchema.parse(req.body);
+      const user = req.dbUser!;
+
+      // Check project exists and is active
+      const project = await storage.getProject(projectId);
+      if (!project) return res.status(404).json({ message: "Project not found" });
+      if (project.status !== "active") return res.status(400).json({ message: "Can only review active projects" });
+
+      // Prevent reviewing your own project
+      if (project.ownerId === user.id) {
+        return res.status(400).json({ message: "Cannot review your own project" });
+      }
+
+      // Check for duplicate (unique constraint will also catch this)
+      const existing = await storage.getUserHumanFeedbackForProject(user.id, projectId);
+      if (existing) {
+        return res.status(409).json({ message: "You have already reviewed this project" });
+      }
+
+      // Create the review
+      const entry = await storage.createHumanFeedback(projectId, user.id, input.sections, input.overallRating);
+
+      // Award credit (25 hundredths = 0.25 of a listing credit)
+      const REVIEW_CREDIT = 25;
+      let creditAmount = 0;
+      const capCheck = await storage.checkCreditCap(user.id);
+      if (capCheck.canEarn) {
+        creditAmount = await storage.incrementCreditEarning(user.id, REVIEW_CREDIT);
+      }
+
+      if (creditAmount > 0) {
+        await storage.updateEarnedCredits(user.id, creditAmount);
+        await storage.addCreditLedgerEntry(
+          user.id, creditAmount, "community_review",
+          `Reviewed "${project.name || project.url}"${creditAmount < REVIEW_CREDIT ? " (capped)" : ""}`,
+          entry.id, "human_feedback"
+        );
+
+        // Check if earned credits convert to a full listing credit
+        const converted = await storage.convertEarnedCredits(user.id);
+        if (converted > 0) {
+          await storage.createNotification(
+            user.id, "credit_earned",
+            "New listing credit earned!",
+            `Your community reviews earned you ${converted} new listing credit${converted > 1 ? "s" : ""}!`,
+            "/submit"
+          );
+        }
+      }
+
+      // Notify project owner about the new review
+      if (project.ownerId) {
+        await storage.createNotification(
+          project.ownerId, "new_review",
+          "New community review",
+          `${user.username} reviewed "${project.name || project.url}" (${input.overallRating}/10)`,
+          `/project/${projectId}`
+        );
+      }
+
+      res.status(201).json({
+        ...entry,
+        username: user.username,
+        creditAmount,
+      });
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  // Get current user's submitted reviews
+  app.get("/api/my-feedback", requireAuth, syncClerkUser, async (req, res) => {
+    const user = req.dbUser!;
+    const feedback = await storage.getHumanFeedbackByUser(user.id);
+    res.json(feedback);
+  });
+
+  // Get reviews received on current user's projects
+  app.get("/api/my-feedback-inbox", requireAuth, syncClerkUser, async (req, res) => {
+    const user = req.dbUser!;
+    const feedback = await storage.getHumanFeedbackInbox(user.id);
+    res.json(feedback);
   });
 
   // ==========================================

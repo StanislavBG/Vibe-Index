@@ -109,7 +109,7 @@ app.use(
 app.use(express.urlencoded({ extended: false }));
 
 // Security headers — contentSecurityPolicy disabled to avoid blocking the frontend served from the same origin
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({ contentSecurityPolicy: false, frameguard: false }));
 
 // CORS configuration
 app.use(cors({

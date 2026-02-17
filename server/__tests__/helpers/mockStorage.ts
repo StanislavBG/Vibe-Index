@@ -437,6 +437,13 @@ export function createMockStorage(): IStorage {
 
     async getProjectTags(_projectId: number) { return notImplemented('getProjectTags'); },
     async setProjectTags(_projectId: number, _canonicalTagIds: number[]) { return notImplemented('setProjectTags'); },
+
+    // Human Feedback
+    async createHumanFeedback(_projectId: number, _authorUserId: number, _sections: Record<string, string>, _overallRating: number) { return notImplemented('createHumanFeedback'); },
+    async getHumanFeedback(_projectId: number, _limit?: number, _offset?: number) { return notImplemented('getHumanFeedback'); },
+    async getHumanFeedbackByUser(_userId: number) { return notImplemented('getHumanFeedbackByUser'); },
+    async getHumanFeedbackInbox(_userId: number) { return notImplemented('getHumanFeedbackInbox'); },
+    async getUserHumanFeedbackForProject(_userId: number, _projectId: number) { return notImplemented('getUserHumanFeedbackForProject'); },
   };
 
   return storage;
